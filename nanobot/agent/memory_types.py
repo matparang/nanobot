@@ -54,7 +54,12 @@ class FractalNode(BaseModel):
 
 
 class EntangledFractalNode(FractalNode):
-    """Backwards-compatible alias type for quantum-latent memory nodes."""
+    """
+    Alias for QL-Bot specific interfaces.
+    
+    Use this name for APIs that explicitly communicate "entangled" capability while
+    preserving wire-compatibility with existing FractalNode payloads.
+    """
 
 
 class Hypothesis(BaseModel):

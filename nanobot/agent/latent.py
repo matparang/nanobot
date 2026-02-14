@@ -2,6 +2,7 @@
 
 import json
 
+from loguru import logger
 from nanobot.agent.memory_types import LatentGraph
 from nanobot.providers.base import LLMProvider
 
@@ -45,5 +46,6 @@ class LatentReasoner:
             graph = LatentGraph.model_validate(graph_data)
             collapsed_strategy = f"Selected Hypothesis {graph.selected_hypothesis_index}"
             return graph, collapsed_strategy
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Latent reasoning fallback triggered: {e}")
             return LatentGraph(), "Linear Fallback"

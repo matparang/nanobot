@@ -168,7 +168,7 @@ class MemoryStore:
                 # Update entanglement links
                 if entangled_with:
                     for ent_id in entangled_with:
-                        node.entangled_ids[ent_id] = node.entangled_ids.get(ent_id, 1.0)
+                        node.entangled_ids[ent_id] = 1.0
                 
                 # Save with updated fields
                 archive_path = self.archives_dir / f"lesson_{node.id}.json"
@@ -205,10 +205,10 @@ class MemoryStore:
         
         if entangled_with:
             for ent_id in entangled_with:
-                node.entangled_ids[ent_id] = node.entangled_ids.get(ent_id, 1.0)
+                node.entangled_ids[ent_id] = 1.0
                 entangled_node = self.get_node_by_id(ent_id)
                 if entangled_node:
-                    entangled_node.entangled_ids[node.id] = entangled_node.entangled_ids.get(node.id, 1.0)
+                    entangled_node.entangled_ids[node.id] = 1.0
                     self._update_node(entangled_node)
         
         # 1. Save full archive (Lesson)
@@ -355,9 +355,8 @@ class MemoryStore:
         base_ids = {n.id for n in base_nodes}
         
         def score_node(node: FractalNode) -> float:
-            vector_similarity = base_scores.get(node.id, 0.0) / max_score
-            if node.id in base_ids and not base_scores:
-                vector_similarity = 1.0
+            base_similarity = base_scores.get(node.id, 1.0 if node.id in base_ids else 0.0)
+            vector_similarity = base_similarity / max_score
             
             entanglement_strength = 0.0
             for source in base_nodes:
