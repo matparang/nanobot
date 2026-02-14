@@ -47,6 +47,46 @@ class FractalNode(BaseModel):
     parent_id: str | None = None  # Parent node ID
     children_ids: list[str] = Field(default_factory=list)  # Child node IDs
     depth: int = 0  # Depth in the hierarchy (0 = root)
+    
+    # QL-Bot properties
+    entangled_ids: dict[str, float] = Field(default_factory=dict)
+    spin: float = 0.0
+
+
+class EntangledFractalNode(FractalNode):
+    """Backwards-compatible alias type for quantum-latent memory nodes."""
+
+
+class Hypothesis(BaseModel):
+    """A candidate strategy in superposition."""
+    strategy: str
+    confidence: float
+    reasoning_trace: str
+    tool_candidates: list[str] = Field(default_factory=list)
+
+
+class SuperpositionalState(BaseModel):
+    """Tracks competing hypotheses and uncertainty."""
+    active_hypotheses: list[Hypothesis] = Field(default_factory=list)
+    last_updated: datetime = Field(default_factory=datetime.now)
+    evolution_stage: int = 1
+    recent_reflections: list[str] = Field(default_factory=list)
+    entropy: float = 0.0
+
+
+class LatentGraph(BaseModel):
+    """Topological representation of latent reasoning."""
+    model_config = ConfigDict(
+        json_encoders={
+            datetime: lambda v: v.isoformat()
+        }
+    )
+
+    nodes: list[str] = Field(default_factory=list)
+    edges: list[tuple[str, str, float]] = Field(default_factory=list)
+    probabilities: dict[str, float] = Field(default_factory=dict)
+    selected_hypothesis_index: int = 0
+    timestamp: datetime = Field(default_factory=datetime.now)
 
 
 class ActiveLearningState(BaseModel):
@@ -67,6 +107,7 @@ class ActiveLearningState(BaseModel):
     evolution_stage: int = 1
     recent_reflections: list[str] = Field(default_factory=list)
     last_updated: datetime = Field(default_factory=datetime.now)
+    superpositional_state: SuperpositionalState | None = None
 
 
 class ContextBlock(BaseModel):

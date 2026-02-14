@@ -362,6 +362,7 @@ def gateway(
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
         memory_config=_get_memory_config(config),
+        enable_quantum_latent=config.agents.defaults.enable_quantum_latent,
     )
     
     # Set cron callback (needs agent)
@@ -469,6 +470,7 @@ def agent(
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         memory_config=_get_memory_config(config),
+        enable_quantum_latent=config.agents.defaults.enable_quantum_latent,
     )
     
     # Show spinner when logs are off (no output to miss); skip when logs are on

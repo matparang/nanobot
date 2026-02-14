@@ -107,6 +107,7 @@ class MemoryStore:
         binary_data: str | None = None,
         mime_type: str | None = None,
         parent_id: str | None = None,
+        entangled_with: list[str] | None = None,
     ) -> FractalNode:
         """
         Creates a lesson archive and updates the index.
@@ -122,6 +123,7 @@ class MemoryStore:
             binary_data: Base64-encoded binary data for images
             mime_type: MIME type for binary data
             parent_id: ID of parent node (for hierarchical relationships)
+            entangled_with: Optional node IDs to entangle with this node
         
         Returns:
             The created FractalNode
@@ -163,6 +165,11 @@ class MemoryStore:
                         node.depth = parent.depth + 1
                         self._update_node(parent)
                 
+                # Update entanglement links
+                if entangled_with:
+                    for ent_id in entangled_with:
+                        node.entangled_ids[ent_id] = node.entangled_ids.get(ent_id, 1.0)
+                
                 # Save with updated fields
                 archive_path = self.archives_dir / f"lesson_{node.id}.json"
                 archive_path.write_text(node.model_dump_json(indent=2), encoding="utf-8")
@@ -195,6 +202,14 @@ class MemoryStore:
                 parent.children_ids.append(node.id)
                 node.depth = parent.depth + 1
                 self._update_node(parent)
+        
+        if entangled_with:
+            for ent_id in entangled_with:
+                node.entangled_ids[ent_id] = node.entangled_ids.get(ent_id, 1.0)
+                entangled_node = self.get_node_by_id(ent_id)
+                if entangled_node:
+                    entangled_node.entangled_ids[node.id] = entangled_node.entangled_ids.get(node.id, 1.0)
+                    self._update_node(entangled_node)
         
         # 1. Save full archive (Lesson)
         archive_path = self.archives_dir / f"lesson_{node.id}.json"
@@ -250,7 +265,13 @@ class MemoryStore:
         if self._mem0_provider:
             try:
                 nodes = self._mem0_provider.search_memories(query, k=k)
-                return self._format_nodes(nodes)
+                base_scores = {
+                    node.id: (len(nodes) - idx) / max(len(nodes), 1)
+                    for idx, node in enumerate(nodes)
+                }
+                expanded_nodes = self.get_entangled_context(nodes)
+                ranked = self._rerank_nodes(expanded_nodes, nodes, base_scores)
+                return self._format_nodes(ranked)
             except Exception as e:
                 logger.error(f"mem0 search failed: {e}")
                 # Fall through to local search
@@ -281,9 +302,11 @@ class MemoryStore:
             
             # Load full content for top K nodes
             nodes = []
+            base_scores = {}
             for score, entry in top_nodes:
                 if score == 0:
                     continue  # Skip irrelevant nodes
+                base_scores[entry["id"]] = score
                 
                 archive_path = self.archives_dir / f"lesson_{entry['id']}.json"
                 if archive_path.exists():
@@ -295,11 +318,57 @@ class MemoryStore:
                     except Exception as e:
                         logger.warning(f"Could not load node {entry['id']}: {e}")
             
-            return self._format_nodes(nodes)
+            expanded_nodes = self.get_entangled_context(nodes)
+            ranked = self._rerank_nodes(expanded_nodes, nodes, base_scores)
+            return self._format_nodes(ranked)
             
         except Exception as e:
             logger.error(f"Error retrieving nodes: {e}")
             return ""
+    
+    def get_entangled_context(self, retrieved_nodes: list[FractalNode]) -> list[FractalNode]:
+        """Expand retrieval set with strongly entangled nodes."""
+        found_ids = {n.id for n in retrieved_nodes}
+        entangled_pool: list[FractalNode] = []
+        
+        for node in retrieved_nodes:
+            for ent_id, strength in node.entangled_ids.items():
+                if ent_id not in found_ids and strength > 0.5:
+                    entangled_node = self.get_node_by_id(ent_id)
+                    if entangled_node:
+                        entangled_pool.append(entangled_node)
+                        found_ids.add(ent_id)
+        
+        return retrieved_nodes + entangled_pool
+    
+    def _rerank_nodes(
+        self,
+        nodes: list[FractalNode],
+        base_nodes: list[FractalNode],
+        base_scores: dict[str, float],
+    ) -> list[FractalNode]:
+        """Re-rank nodes with vector/keyword and entanglement blend."""
+        if not nodes:
+            return nodes
+        
+        max_score = max(base_scores.values()) if base_scores else 1.0
+        base_ids = {n.id for n in base_nodes}
+        
+        def score_node(node: FractalNode) -> float:
+            vector_similarity = base_scores.get(node.id, 0.0) / max_score
+            if node.id in base_ids and not base_scores:
+                vector_similarity = 1.0
+            
+            entanglement_strength = 0.0
+            for source in base_nodes:
+                entanglement_strength = max(
+                    entanglement_strength,
+                    source.entangled_ids.get(node.id, 0.0),
+                )
+            
+            return (vector_similarity * 0.7) + (entanglement_strength * 0.3)
+        
+        return sorted(nodes, key=score_node, reverse=True)
     
     def _format_nodes(self, nodes: list[FractalNode]) -> str:
         """Format nodes for context display."""

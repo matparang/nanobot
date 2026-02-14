@@ -8,6 +8,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.latent import LatentReasoner
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
@@ -50,6 +51,7 @@ class AgentLoop:
         restrict_to_workspace: bool = False,
         session_manager: SessionManager | None = None,
         memory_config: dict[str, Any] | None = None,
+        enable_quantum_latent: bool = True,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -63,8 +65,10 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.enable_quantum_latent = enable_quantum_latent
         
         self.context = ContextBuilder(workspace, memory_config=memory_config)
+        self.latent_reasoner = LatentReasoner(provider, self.model, temperature=self.temperature)
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
@@ -199,12 +203,20 @@ class AgentLoop:
             cron_tool.set_context(msg.channel, msg.chat_id)
         
         # Build initial messages (use get_history for LLM-formatted messages)
+        latent_graph = None
+        collapsed_strategy = None
+        if self.enable_quantum_latent:
+            initial_context = self.context.build_system_prompt(user_query=msg.content)
+            latent_graph, collapsed_strategy = await self.latent_reasoner.reason(initial_context)
+
         messages = self.context.build_messages(
             history=session.get_history(),
             current_message=msg.content,
             media=msg.media if msg.media else None,
             channel=msg.channel,
             chat_id=msg.chat_id,
+            latent_graph=latent_graph,
+            collapsed_strategy=collapsed_strategy,
         )
         
         # Agent loop

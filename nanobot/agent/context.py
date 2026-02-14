@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.memory import MemoryStore
+from nanobot.agent.memory_types import LatentGraph
 from nanobot.agent.skills import SkillsLoader
 
 
@@ -26,7 +27,11 @@ class ContextBuilder:
         self.skills = SkillsLoader(workspace)
     
     def build_system_prompt(
-        self, skill_names: list[str] | None = None, user_query: str = ""
+        self,
+        skill_names: list[str] | None = None,
+        user_query: str = "",
+        latent_graph: LatentGraph | None = None,
+        collapsed_strategy: str | None = None,
     ) -> str:
         """
         Build the system prompt using the 6-Block Context Workflow.
@@ -45,6 +50,16 @@ class ContextBuilder:
             Complete system prompt with structured blocks.
         """
         parts = []
+
+        # Block 0: Latent State
+        if latent_graph:
+            confidence = max(latent_graph.probabilities.values()) if latent_graph.probabilities else 0.0
+            parts.append(
+                "# QUANTUM LATENT STATE\n"
+                f"Hypothesis Superposition collapsed to: {collapsed_strategy or 'N/A'}\n"
+                f"Reasoning Topology: {len(latent_graph.nodes)} nodes, {len(latent_graph.edges)} edges.\n"
+                f"Confidence: {confidence}"
+            )
         
         # Block 1: System & Persona (Static)
         parts.append(self._get_identity())
@@ -174,6 +189,8 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         media: list[str] | None = None,
         channel: str | None = None,
         chat_id: str | None = None,
+        latent_graph: LatentGraph | None = None,
+        collapsed_strategy: str | None = None,
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call using 6-block structure.
@@ -192,7 +209,12 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         messages = []
 
         # Block 1-3: System prompt (with user query for fractal node retrieval)
-        system_prompt = self.build_system_prompt(skill_names, user_query=current_message)
+        system_prompt = self.build_system_prompt(
+            skill_names,
+            user_query=current_message,
+            latent_graph=latent_graph,
+            collapsed_strategy=collapsed_strategy,
+        )
         if channel and chat_id:
             system_prompt += f"\n\n## Current Session\nChannel: {channel}\nChat ID: {chat_id}"
         messages.append({"role": "system", "content": system_prompt})
