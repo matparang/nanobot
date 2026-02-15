@@ -3,7 +3,6 @@
 import asyncio
 import json
 import random
-import time
 from collections import Counter
 from json import JSONDecodeError
 
@@ -26,6 +25,7 @@ class LatentReasoner:
         max_depth: int = 1,
         monte_carlo_samples: int = 1,
         monte_carlo_top_k: int = 3,
+        random_seed: int | None = None,
     ):
         self.provider = provider
         self.model = model
@@ -34,6 +34,7 @@ class LatentReasoner:
         self.max_depth = max(1, max_depth)
         self.monte_carlo_samples = max(1, monte_carlo_samples)
         self.monte_carlo_top_k = max(1, monte_carlo_top_k)
+        self._random = random.Random(random_seed)
 
     async def reason(self, user_message: str, context_summary: str) -> SuperpositionalState:
         fallback_state = SuperpositionalState(
@@ -72,7 +73,7 @@ class LatentReasoner:
         weights = [max(h.confidence, 0.0) for h in hypotheses]
         if sum(weights) <= 0:
             weights = [1.0] * len(hypotheses)
-        samples = random.choices(hypotheses, weights=weights, k=self.monte_carlo_samples)
+        samples = self._random.choices(hypotheses, weights=weights, k=self.monte_carlo_samples)
         sampled_intents = Counter(h.intent for h in samples)
         retained_hypotheses: list[Hypothesis] = []
         for intent, count in sampled_intents.most_common(self.monte_carlo_top_k):
@@ -120,7 +121,6 @@ class LatentReasoner:
         )
 
         try:
-            start = time.monotonic()
             response = await asyncio.wait_for(
                 self.provider.chat(
                     messages=[
@@ -132,20 +132,20 @@ class LatentReasoner:
                 ),
                 timeout=self.timeout_seconds,
             )
-            elapsed = time.monotonic() - start
-            if elapsed > self.timeout_seconds:
-                logger.warning(
-                    "Latent reasoning exceeded configured timeout: {:.2f}s > {}s",
-                    elapsed,
-                    self.timeout_seconds,
-                )
             payload = (response.content or "").strip()
             if payload.startswith("```"):
                 payload = payload.removeprefix("```json").removeprefix("```").strip()
                 if payload.endswith("```"):
                     payload = payload[:-3].strip()
             return SuperpositionalState.model_validate(json.loads(payload))
-        except (asyncio.TimeoutError, JSONDecodeError, ValidationError) as exc:
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Latent reasoning timed out after %ss at depth %s",
+                self.timeout_seconds,
+                depth,
+            )
+            return fallback_state
+        except (JSONDecodeError, ValidationError) as exc:
             logger.debug(f"Latent reasoning fallback triggered: {exc}")
             return fallback_state
         except Exception as exc:

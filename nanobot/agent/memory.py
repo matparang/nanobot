@@ -257,10 +257,7 @@ class MemoryStore:
                 self.importance_min,
                 importance * (1.0 - self.importance_decay_rate),
             )
-            if importance != node.importance:
-                node.importance = self._clamp_score(importance)
-                self._update_node(node)
-                logger.debug("Applied importance decay to node %s -> %.4f", node.id, node.importance)
+            logger.debug("Applied importance decay to node %s -> %.4f", node.id, importance)
         return self._clamp_score(importance)
 
     def _score_candidate(
@@ -272,6 +269,7 @@ class MemoryStore:
         """Compute bounded hybrid score with optional importance weighting."""
         total_weight = self.semantic_weight + self.entanglement_weight + self.importance_weight
         if total_weight <= 0:
+            logger.warning("Invalid hybrid scoring weights (sum <= 0); returning zero score.")
             return 0.0
         raw_score = (
             (vec_score * self.semantic_weight)

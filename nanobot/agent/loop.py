@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import time
 from pathlib import Path
 from typing import Any
 
@@ -236,18 +235,10 @@ class AgentLoop:
             msg.content, top_k=self.max_context_nodes
         )
         latent_context = self.context.memory._format_nodes(latent_nodes)
-        latent_start = time.monotonic()
         latent_state = await self.latent_engine.reason(
             user_message=msg.content,
             context_summary=latent_context,
         )
-        latent_elapsed = time.monotonic() - latent_start
-        if latent_elapsed > self.latent_engine.timeout_seconds:
-            logger.warning(
-                "Latent reasoning pass exceeded timeout window: %.2fs > %ss",
-                latent_elapsed,
-                self.latent_engine.timeout_seconds,
-            )
         should_clarify = latent_state.entropy > self.clarify_entropy_threshold
         if should_clarify:
             if len(latent_state.hypotheses) >= 2:
