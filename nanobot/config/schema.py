@@ -245,6 +245,16 @@ class MemoryConfig(BaseModel):
     clarify_entropy_threshold: float = 0.8
     latent_timeout_seconds: int = 10
     max_context_nodes: int = 5
+    semantic_weight: float = 0.7
+    entanglement_weight: float = 0.3
+    importance_weight: float = 0.0
+    beam_prune_k: int | None = None
+    importance_decay_rate: float = 0.0
+    importance_min: float = 0.0
+    latent_max_depth: int = 1
+    latent_entropy_threshold: float = 0.8
+    monte_carlo_samples: int = 1
+    monte_carlo_top_k: int = 3
 
 
 class Config(BaseSettings):

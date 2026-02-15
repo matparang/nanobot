@@ -12,6 +12,10 @@ class AgentConfig(BaseSettings):
     clarify_entropy_threshold: float = 0.8
     latent_timeout_seconds: int = 10
     max_context_nodes: int = 5
+    latent_max_depth: int = 1
+    latent_entropy_threshold: float = 0.8
+    monte_carlo_samples: int = 1
+    monte_carlo_top_k: int = 3
 
     model_config = SettingsConfigDict(env_prefix="NANOBOT_")
 

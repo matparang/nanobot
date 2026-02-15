@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from pathlib import Path
 from typing import Any
 
@@ -75,12 +76,28 @@ class AgentLoop:
         latent_timeout_seconds = int(
             self.memory_config.get("latent_timeout_seconds", settings.latent_timeout_seconds)
         )
+        latent_max_depth = int(
+            self.memory_config.get("latent_max_depth", settings.latent_max_depth)
+        )
+        latent_entropy_threshold = float(
+            self.memory_config.get("latent_entropy_threshold", settings.latent_entropy_threshold)
+        )
+        monte_carlo_samples = int(
+            self.memory_config.get("monte_carlo_samples", settings.monte_carlo_samples)
+        )
+        monte_carlo_top_k = int(
+            self.memory_config.get("monte_carlo_top_k", settings.monte_carlo_top_k)
+        )
         
         self.context = ContextBuilder(workspace, memory_config=memory_config)
         self.latent_engine = LatentReasoner(
             provider=self.provider,
             model=self.model,
             timeout_seconds=latent_timeout_seconds,
+            entropy_threshold=latent_entropy_threshold,
+            max_depth=latent_max_depth,
+            monte_carlo_samples=monte_carlo_samples,
+            monte_carlo_top_k=monte_carlo_top_k,
         )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
@@ -219,10 +236,18 @@ class AgentLoop:
             msg.content, top_k=self.max_context_nodes
         )
         latent_context = self.context.memory._format_nodes(latent_nodes)
+        latent_start = time.monotonic()
         latent_state = await self.latent_engine.reason(
             user_message=msg.content,
             context_summary=latent_context,
         )
+        latent_elapsed = time.monotonic() - latent_start
+        if latent_elapsed > self.latent_engine.timeout_seconds:
+            logger.warning(
+                "Latent reasoning pass exceeded timeout window: %.2fs > %ss",
+                latent_elapsed,
+                self.latent_engine.timeout_seconds,
+            )
         should_clarify = latent_state.entropy > self.clarify_entropy_threshold
         if should_clarify:
             if len(latent_state.hypotheses) >= 2:

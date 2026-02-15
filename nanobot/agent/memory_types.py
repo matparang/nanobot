@@ -50,6 +50,7 @@ class FractalNode(BaseModel):
 
     # Graph edges: {node_id: entanglement_strength (0.0 - 1.0)}
     entangled_ids: dict[str, float] = Field(default_factory=dict)
+    importance: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
 class ActiveLearningState(BaseModel):

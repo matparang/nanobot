@@ -17,6 +17,7 @@ MAX_CONTENT_PREVIEW_LENGTH = 200  # Maximum length for content preview in retrie
 INITIAL_CANDIDATE_MULTIPLIER = 2
 SEMANTIC_WEIGHT = 0.7
 ENTANGLEMENT_WEIGHT = 0.3
+IMPORTANCE_WEIGHT = 0.0
 
 
 class MemoryStore:
@@ -38,6 +39,12 @@ class MemoryStore:
         self.workspace = workspace
         self.memory_dir = ensure_dir(workspace / "memory")
         self.config = config or {}
+        self.semantic_weight = float(self.config.get("semantic_weight", SEMANTIC_WEIGHT))
+        self.entanglement_weight = float(self.config.get("entanglement_weight", ENTANGLEMENT_WEIGHT))
+        self.importance_weight = float(self.config.get("importance_weight", IMPORTANCE_WEIGHT))
+        self.beam_prune_k = self.config.get("beam_prune_k")
+        self.importance_decay_rate = float(self.config.get("importance_decay_rate", 0.0))
+        self.importance_min = float(self.config.get("importance_min", 0.0))
         
         # Legacy files (preserved for backward compatibility)
         self.memory_file = self.memory_dir / "MEMORY.md"
@@ -238,6 +245,41 @@ class MemoryStore:
         archive_path.write_text(node.model_dump_json(indent=2), encoding="utf-8")
         self._update_index(node)
 
+    def _clamp_score(self, score: float) -> float:
+        """Clamp score to [0.0, 1.0]."""
+        return max(0.0, min(1.0, score))
+
+    def _get_decayed_importance(self, node: FractalNode) -> float:
+        """Return importance after applying optional decay."""
+        importance = self._clamp_score(node.importance)
+        if self.importance_decay_rate > 0:
+            importance = max(
+                self.importance_min,
+                importance * (1.0 - self.importance_decay_rate),
+            )
+            if importance != node.importance:
+                node.importance = self._clamp_score(importance)
+                self._update_node(node)
+                logger.debug("Applied importance decay to node %s -> %.4f", node.id, node.importance)
+        return self._clamp_score(importance)
+
+    def _score_candidate(
+        self,
+        vec_score: float,
+        normalized_entanglement: float,
+        importance: float,
+    ) -> float:
+        """Compute bounded hybrid score with optional importance weighting."""
+        total_weight = self.semantic_weight + self.entanglement_weight + self.importance_weight
+        if total_weight <= 0:
+            return 0.0
+        raw_score = (
+            (vec_score * self.semantic_weight)
+            + (normalized_entanglement * self.entanglement_weight)
+            + (importance * self.importance_weight)
+        ) / total_weight
+        return self._clamp_score(raw_score)
+
     def _vector_search(self, query: str, k: int) -> list[tuple[FractalNode, float]]:
         """Return node candidates with a normalized relevance score."""
         if self._mem0_provider:
@@ -294,8 +336,13 @@ class MemoryStore:
         if not initial_results:
             return []
 
+        beam_k = self.beam_prune_k if isinstance(self.beam_prune_k, int) and self.beam_prune_k > 0 else None
+        if beam_k is not None and len(initial_results) > beam_k:
+            logger.info("Beam pruning initial candidates from %d to %d", len(initial_results), beam_k)
+            initial_results = initial_results[:beam_k]
+
         candidates: dict[str, dict[str, Any]] = {
-            node.id: {"node": node, "vec_score": score, "raw_entanglement": 0.0}
+            node.id: {"node": node, "vec_score": score, "raw_entanglement": 0.0, "importance": self._get_decayed_importance(node)}
             for node, score in initial_results
         }
 
@@ -309,6 +356,7 @@ class MemoryStore:
                         "node": ent_node,
                         "vec_score": vec_score * strength,
                         "raw_entanglement": 0.0,
+                        "importance": self._get_decayed_importance(ent_node),
                     }
 
         max_entanglement = 0.0
@@ -324,12 +372,17 @@ class MemoryStore:
             normalized_strength = (
                 data["raw_entanglement"] / max_entanglement if max_entanglement > 0 else 0.0
             )
-            final_score = (data["vec_score"] * SEMANTIC_WEIGHT) + (
-                normalized_strength * ENTANGLEMENT_WEIGHT
+            final_score = self._score_candidate(
+                vec_score=self._clamp_score(data["vec_score"]),
+                normalized_entanglement=self._clamp_score(normalized_strength),
+                importance=data["importance"],
             )
             final_scores.append((data["node"], final_score))
 
         final_scores.sort(key=lambda x: x[1], reverse=True)
+        if beam_k is not None and len(final_scores) > beam_k:
+            logger.debug("Beam pruning final candidates from %d to %d", len(final_scores), beam_k)
+            final_scores = final_scores[:beam_k]
         return [node for node, _ in final_scores[:top_k]]
     
     def retrieve_relevant_nodes(self, query: str, k: int = 5) -> str:

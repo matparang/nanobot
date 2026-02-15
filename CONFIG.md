@@ -119,7 +119,20 @@ Configure the Fractal Memory system and Active Learning State (ALS):
     "mem0Version": "v1.1",
     "embeddingModel": "text-embedding-3-small",
     "embeddingDim": 1536,
-    "useHybridSearch": true
+    "useHybridSearch": true,
+    "semanticWeight": 0.7,
+    "entanglementWeight": 0.3,
+    "importanceWeight": 0.0,
+    "beamPruneK": null,
+    "importanceDecayRate": 0.0,
+    "importanceMin": 0.0,
+    "clarifyEntropyThreshold": 0.8,
+    "latentTimeoutSeconds": 10,
+    "maxContextNodes": 5,
+    "latentMaxDepth": 1,
+    "latentEntropyThreshold": 0.8,
+    "monteCarloSamples": 1,
+    "monteCarloTopK": 3
   }
 }
 ```
@@ -149,6 +162,34 @@ Configure these fields if using mem0 (https://mem0.ai):
 - `embeddingModel`: OpenAI embedding model (requires OpenAI API key)
 - `embeddingDim`: Embedding dimension (1536 for text-embedding-3-small)
 - `useHybridSearch`: Combine keyword and vector search
+
+**Cognitive Enhancement Settings:**
+- `semanticWeight`: Weight for semantic similarity in hybrid scoring
+- `entanglementWeight`: Weight for graph entanglement in hybrid scoring
+- `importanceWeight`: Weight for node importance in hybrid scoring (`0.0` keeps old behavior)
+- `beamPruneK`: Optional beam width for context node pruning (`null` disables pruning)
+- `importanceDecayRate`: Optional per-retrieval importance decay rate (`0.0` disables decay)
+- `importanceMin`: Lower bound for decayed node importance
+- `clarifyEntropyThreshold`: Entropy level that triggers ambiguity clarification
+- `latentTimeoutSeconds`: Timeout for one latent reasoning pass
+- `maxContextNodes`: Maximum nodes included in latent/context retrieval
+- `latentMaxDepth`: Max iterative-deepening latent passes (`1` keeps old behavior)
+- `latentEntropyThreshold`: Early-stop threshold for iterative deepening
+- `monteCarloSamples`: Number of Monte Carlo samples for hypothesis reduction (`1` disables)
+- `monteCarloTopK`: Maximum hypotheses retained after Monte Carlo sampling
+
+**Advanced reasoning example:**
+```json
+{
+  "memory": {
+    "latentMaxDepth": 3,
+    "latentEntropyThreshold": 0.4,
+    "monteCarloSamples": 32,
+    "monteCarloTopK": 2,
+    "beamPruneK": 8
+  }
+}
+```
 
 **Note on Sentence Transformers:**
 Sentence Transformers is a Python library for generating embeddings locally. To use it:
