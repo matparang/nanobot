@@ -463,6 +463,7 @@ def gateway(
         memory_config=_get_memory_config(config),
         rate_limit_config=_get_rate_limit_config(config),
         telemetry_config=_get_telemetry_config(config),
+        enable_latent_reasoning=config.agents.defaults.enable_latent_reasoning,
     )
 
     # Set cron callback (needs agent)
@@ -573,6 +574,7 @@ def agent(
         memory_config=_get_memory_config(config),
         rate_limit_config=_get_rate_limit_config(config),
         telemetry_config=_get_telemetry_config(config),
+        enable_latent_reasoning=config.agents.defaults.enable_latent_reasoning,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on

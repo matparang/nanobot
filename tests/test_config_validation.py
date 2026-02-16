@@ -80,6 +80,7 @@ def test_example_config_validates():
     # Verify providers are set up
     assert config.providers.openai.api_key != ""
     assert config.providers.gemini.api_key != ""
+    assert config.agents.defaults.enable_latent_reasoning is True
 
 
 def test_minimal_config_validates():
@@ -95,6 +96,15 @@ def test_minimal_config_validates():
 
     # Verify defaults are applied (memory has been moved to extensions)
     assert config.agents.defaults.workspace == "~/.nanobot/workspace"  # Default value
+    assert config.agents.defaults.enable_latent_reasoning is True
+
+
+def test_config_accepts_enable_latent_reasoning_override():
+    """Test that enable_latent_reasoning can be disabled via config."""
+    config = Config.model_validate(
+        convert_keys({"agents": {"defaults": {"enableLatentReasoning": False}}})
+    )
+    assert config.agents.defaults.enable_latent_reasoning is False
 
 
 def test_old_config_with_deprecated_fields_migrates():

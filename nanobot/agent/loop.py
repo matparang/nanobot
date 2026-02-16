@@ -64,6 +64,7 @@ class AgentLoop:
         memory_config: dict[str, Any] | None = None,
         rate_limit_config: dict[str, Any] | None = None,
         telemetry_config: dict[str, Any] | None = None,
+        enable_latent_reasoning: bool = True,
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
@@ -77,6 +78,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.enable_latent_reasoning = enable_latent_reasoning
         self.memory_config = memory_config or {}
         self.clarify_entropy_threshold = float(
             self.memory_config.get("clarify_entropy_threshold", settings.clarify_entropy_threshold)
@@ -309,11 +311,14 @@ class AgentLoop:
         latent_nodes = self.context.memory.get_entangled_context(msg.content, top_k=self.max_context_nodes)
         memory_retrieval_duration.observe(time.time() - retrieval_start)
         latent_context = self.context.memory._format_nodes(latent_nodes)
-        latent_start = time.time()
-        latent_state = await self.latent_engine.reason(user_message=msg.content, context_summary=latent_context)
-        latent_reasoning_duration.observe(time.time() - latent_start)
-        should_clarify = latent_state.entropy > self.clarify_entropy_threshold
-        if should_clarify:
+        latent_state = None
+        should_clarify = False
+        if self.enable_latent_reasoning:
+            latent_start = time.time()
+            latent_state = await self.latent_engine.reason(user_message=msg.content, context_summary=latent_context)
+            latent_reasoning_duration.observe(time.time() - latent_start)
+            should_clarify = latent_state.entropy > self.clarify_entropy_threshold
+        if should_clarify and latent_state:
             if len(latent_state.hypotheses) >= 2:
                 opt1 = latent_state.hypotheses[0].intent
                 opt2 = latent_state.hypotheses[1].intent

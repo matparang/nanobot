@@ -8,10 +8,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from nanobot.agent.loop import AgentLoop
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.latent import LatentReasoner
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.memory_types import FractalNode, SuperpositionalState
+from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
@@ -239,6 +241,30 @@ async def test_latent_retry_attempts_are_configurable():
     state = await reasoner.reason("retry", context_summary="")
     assert state.hypotheses == []
     assert provider.chat.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_skips_latent_reasoning_when_disabled():
+    with tempfile.TemporaryDirectory() as tmpdir:
+        provider = SimpleNamespace(
+            get_default_model=lambda: "test-model",
+            chat=AsyncMock(return_value=LLMResponse(content="ok")),
+        )
+        loop = AgentLoop(
+            bus=MessageBus(),
+            provider=provider,
+            workspace=Path(tmpdir),
+            enable_latent_reasoning=False,
+        )
+        loop.latent_engine.reason = AsyncMock()
+
+        response = await loop._process_message(
+            InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
+        )
+
+        assert response is not None
+        assert response.content == "ok"
+        loop.latent_engine.reason.assert_not_awaited()
 
 
 def test_entanglement_hop_limit_prevents_deep_chain():
