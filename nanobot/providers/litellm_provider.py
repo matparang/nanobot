@@ -215,7 +215,11 @@ class LiteLLMProvider(LLMProvider):
             if model_name.startswith(prefix):
                 model_name = model_name[len(prefix):]
                 break
-        endpoint = f"{self.api_base.rstrip('/')}/v1/chat/completions"
+        base_url = self.api_base.rstrip("/")
+        if base_url.endswith("/v1"):
+            endpoint = f"{base_url}/chat/completions"
+        else:
+            endpoint = f"{base_url}/v1/chat/completions"
         parsed_endpoint = urlparse(endpoint)
         if parsed_endpoint.scheme not in ("http", "https"):
             return LLMResponse(
@@ -230,6 +234,7 @@ class LiteLLMProvider(LLMProvider):
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
+            "stream": False,
         }
         if tools:
             payload["tools"] = tools

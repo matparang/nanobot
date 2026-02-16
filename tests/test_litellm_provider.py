@@ -75,3 +75,41 @@ async def test_chat_via_curl_includes_and_parses_tool_calls(monkeypatch: pytest.
     assert response.tool_calls[0].id == "call_1"
     assert response.tool_calls[0].name == "ping"
     assert response.tool_calls[0].arguments == {"value": 1}
+
+
+@pytest.mark.asyncio
+async def test_chat_via_curl_handles_api_base_with_v1_and_ollama_prefix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = LiteLLMProvider(api_base="http://localhost:11434/v1")
+
+    async def fake_to_thread(function, command, **kwargs):
+        payload = json.loads(command[command.index("-d") + 1])
+        assert command[3] == "http://localhost:11434/v1/chat/completions"
+        assert payload["model"] == "qwen2.5:7b-instruct"
+        assert payload["stream"] is False
+        return SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps(
+                {
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {"content": "ok"},
+                        }
+                    ]
+                }
+            ),
+        )
+
+    monkeypatch.setattr("nanobot.providers.litellm_provider.asyncio.to_thread", fake_to_thread)
+
+    response = await provider._chat_via_curl(
+        messages=[{"role": "user", "content": "hi"}],
+        model="ollama/qwen2.5:7b-instruct",
+        max_tokens=128,
+        temperature=0.3,
+    )
+
+    assert response.content == "ok"
