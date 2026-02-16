@@ -15,7 +15,7 @@ from nanobot.utils.helpers import ensure_dir, safe_filename
 class Session:
     """
     A conversation session.
-    
+
     Stores messages in JSONL format for easy reading and persistence.
     """
 
@@ -39,10 +39,10 @@ class Session:
     def get_history(self, max_messages: int = 50) -> list[dict[str, Any]]:
         """
         Get message history for LLM context.
-        
+
         Args:
             max_messages: Maximum messages to return.
-        
+
         Returns:
             List of messages in LLM format.
         """
@@ -61,7 +61,7 @@ class Session:
 class SessionManager:
     """
     Manages conversation sessions.
-    
+
     Sessions are stored as JSONL files in the sessions directory.
     """
 
@@ -78,10 +78,10 @@ class SessionManager:
     def get_or_create(self, key: str) -> Session:
         """
         Get an existing session or create a new one.
-        
+
         Args:
             key: Session key (usually channel:chat_id).
-        
+
         Returns:
             The session.
         """
@@ -156,10 +156,10 @@ class SessionManager:
     def delete(self, key: str) -> bool:
         """
         Delete a session.
-        
+
         Args:
             key: Session key.
-        
+
         Returns:
             True if deleted, False if not found.
         """
@@ -176,7 +176,7 @@ class SessionManager:
     def list_sessions(self) -> list[dict[str, Any]]:
         """
         List all sessions.
-        
+
         Returns:
             List of session info dicts.
         """
