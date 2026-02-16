@@ -146,7 +146,7 @@ class LiteLLMProvider(LLMProvider):
                         is_loopback = True
 
             if is_loopback:
-                return await self._chat_via_curl(messages, model, max_tokens, temperature)
+                return await self._chat_via_curl(messages, model, max_tokens, temperature, tools)
 
         kwargs: dict[str, Any] = {
             "model": model,
@@ -190,6 +190,7 @@ class LiteLLMProvider(LLMProvider):
         model: str,
         max_tokens: int,
         temperature: float,
+        tools: list[dict[str, Any]] | None = None,
     ) -> LLMResponse:
         """Fallback: Use curl for local endpoints (Ollama, vLLM).
         
@@ -198,6 +199,7 @@ class LiteLLMProvider(LLMProvider):
             model: Resolved model name to send.
             max_tokens: Maximum tokens to generate.
             temperature: Sampling temperature.
+            tools: Optional list of tool definitions in OpenAI format.
         
         Returns:
             LLMResponse containing the model content or an error message.
@@ -213,7 +215,7 @@ class LiteLLMProvider(LLMProvider):
             if model_name.startswith(prefix):
                 model_name = model_name[len(prefix):]
                 break
-        endpoint = f"{self.api_base.rstrip('/')}/chat/completions"
+        endpoint = f"{self.api_base.rstrip('/')}/v1/chat/completions"
         parsed_endpoint = urlparse(endpoint)
         if parsed_endpoint.scheme not in ("http", "https"):
             return LLMResponse(
@@ -229,6 +231,9 @@ class LiteLLMProvider(LLMProvider):
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if tools:
+            payload["tools"] = tools
+            payload["tool_choice"] = "auto"
         
         try:
             result = await asyncio.to_thread(
@@ -277,14 +282,33 @@ class LiteLLMProvider(LLMProvider):
             choice = choices[0]
             message = choice.get('message', {})
             content = message.get('content')
-            if not content:
+            tool_calls = []
+            if 'tool_calls' in message:
+                for tc in message['tool_calls']:
+                    arguments = tc.get('function', {}).get('arguments', '{}')
+                    if isinstance(arguments, str):
+                        try:
+                            arguments = json.loads(arguments)
+                        except json.JSONDecodeError:
+                            arguments = {"raw": arguments}
+                    tool_calls.append(
+                        ToolCallRequest(
+                            id=tc.get('id'),
+                            name=tc.get('function', {}).get('name'),
+                            arguments=arguments,
+                        )
+                    )
+
+            if not content and not tool_calls:
                 return LLMResponse(
-                    content="Local endpoint error: missing or empty content in response",
+                    content="Local endpoint error: missing or empty content and tool_calls in response",
                     finish_reason="error",
                 )
             
             return LLMResponse(
-                content=content,
+                # OpenAI-compatible tool calls can legitimately return null content.
+                content=content or "",
+                tool_calls=tool_calls,
                 finish_reason=choice.get('finish_reason', 'stop'),
             )
         except Exception as e:
