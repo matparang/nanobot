@@ -1,8 +1,12 @@
 """LiteLLM provider implementation for multi-provider support."""
 
+import asyncio
 import json
 import os
+import subprocess
+import ipaddress
 from typing import Any
+from urllib.parse import urlparse
 
 import litellm
 from litellm import acompletion
@@ -12,6 +16,10 @@ from nanobot.providers.registry import find_by_model, find_gateway
 
 
 class LiteLLMProvider(LLMProvider):
+    CURL_TIMEOUT = 120
+    PROCESS_TIMEOUT_BUFFER = 5
+    LOCAL_MODEL_PREFIXES = ("hosted_vllm/", "ollama/")
+
     """
     LLM provider using LiteLLM for multi-provider support.
     
@@ -122,6 +130,24 @@ class LiteLLMProvider(LLMProvider):
         """
         model = self._resolve_model(model or self.default_model)
 
+        # Special handling for local endpoints (Ollama, vLLM)
+        if self.api_base:
+            parsed_base = urlparse(self.api_base)
+            if not parsed_base.scheme:
+                parsed_base = urlparse(f"http://{self.api_base}")
+            hostname = parsed_base.hostname
+            is_loopback = False
+            if hostname:
+                try:
+                    ip_obj = ipaddress.ip_address(hostname)
+                    is_loopback = ip_obj.is_loopback
+                except ValueError:
+                    if hostname == "localhost" or hostname.endswith(".localhost"):
+                        is_loopback = True
+
+            if is_loopback:
+                return await self._chat_via_curl(messages, model, max_tokens, temperature)
+
         kwargs: dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -155,6 +181,115 @@ class LiteLLMProvider(LLMProvider):
             # Return error as content for graceful handling
             return LLMResponse(
                 content=f"Error calling LLM: {str(e)}",
+                finish_reason="error",
+            )
+
+    async def _chat_via_curl(
+        self,
+        messages: list[dict],
+        model: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> LLMResponse:
+        """Fallback: Use curl for local endpoints (Ollama, vLLM).
+        
+        Args:
+            messages: Conversation messages in OpenAI format.
+            model: Resolved model name to send.
+            max_tokens: Maximum tokens to generate.
+            temperature: Sampling temperature.
+        
+        Returns:
+            LLMResponse containing the model content or an error message.
+        
+        Workaround for Python HTTP client incompatibility with Ollama.
+        curl works reliably where httpx/requests hang. HTTPS endpoints rely on system
+        trust; self-signed certificates require adding a trusted CA (we deliberately
+        avoid --insecure).
+        """
+        # Strip prefixes for curl request
+        model_name = model
+        for prefix in self.LOCAL_MODEL_PREFIXES:
+            if model_name.startswith(prefix):
+                model_name = model_name[len(prefix):]
+                break
+        endpoint = f"{self.api_base.rstrip('/')}/chat/completions"
+        parsed_endpoint = urlparse(endpoint)
+        if parsed_endpoint.scheme not in ("http", "https"):
+            return LLMResponse(
+                content="Local endpoint error: invalid api_base scheme",
+                finish_reason="error",
+            )
+        curl_timeout = self.CURL_TIMEOUT
+        process_timeout = curl_timeout + self.PROCESS_TIMEOUT_BUFFER
+        
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        
+        try:
+            result = await asyncio.to_thread(
+                subprocess.run,
+                [
+                    'curl', '-X', 'POST',
+                    endpoint,
+                    '-H', 'Content-Type: application/json',
+                    '-d', json.dumps(payload),
+                    '--fail',
+                    '--max-time', str(curl_timeout),
+                    '--silent',
+                ],
+                capture_output=True,
+                text=True,
+                timeout=process_timeout,
+            )
+            
+            if result.returncode != 0:
+                return LLMResponse(
+                    content=f"Local endpoint error: {result.stderr}",
+                    finish_reason="error",
+                )
+
+            if not result.stdout:
+                return LLMResponse(
+                    content="Local endpoint error: empty response",
+                    finish_reason="error",
+                )
+
+            try:
+                data = json.loads(result.stdout)
+            except json.JSONDecodeError as parse_err:
+                return LLMResponse(
+                    content=f"Local endpoint error: invalid JSON response ({parse_err})",
+                    finish_reason="error",
+                )
+
+            choices = data.get('choices')
+            if not choices:
+                return LLMResponse(
+                    content="Local endpoint error: missing choices in response",
+                    finish_reason="error",
+                )
+
+            choice = choices[0]
+            message = choice.get('message', {})
+            content = message.get('content')
+            if not content:
+                return LLMResponse(
+                    content="Local endpoint error: missing or empty content in response",
+                    finish_reason="error",
+                )
+            
+            return LLMResponse(
+                content=content,
+                finish_reason=choice.get('finish_reason', 'stop'),
+            )
+        except Exception as e:
+            return LLMResponse(
+                content=f"Error calling local endpoint: {str(e)}",
                 finish_reason="error",
             )
 
