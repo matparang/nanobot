@@ -277,20 +277,18 @@ class TranslatorConfig(BaseModel):
 
 
 class Config(BaseSettings):
-    """Root configuration for nanobot."""
+    """Root configuration for nanobot.
+    
+    Note: The following fields have been deprecated and moved to extensions.json:
+    - memory, translator, telemetry (moved to extension sections)
+    - enable_quantum_latent, use_keyring (moved to extensions.custom)
+    - rate_limit_enabled, rate_limit_max_calls, rate_limit_window_seconds (moved to extensions.rate_limit)
+    """
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    memory: MemoryConfig = Field(default_factory=MemoryConfig)
-    translator: TranslatorConfig = Field(default_factory=TranslatorConfig)
-    telemetry: TelemetryConfig = Field(default_factory=TelemetryConfig)
-    enable_quantum_latent: bool = True
-    rate_limit_enabled: bool = True
-    rate_limit_max_calls: int = 10
-    rate_limit_window_seconds: int = 60
-    use_keyring: bool = True
 
     @property
     def workspace_path(self) -> Path:

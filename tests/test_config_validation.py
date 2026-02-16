@@ -74,12 +74,9 @@ def test_example_config_validates():
     # Convert camelCase to snake_case and validate
     config = Config.model_validate(convert_keys(data))
 
-    # Verify it's configured as expected
-    assert config.memory.enabled is True
-    assert config.memory.provider == "local"
-    assert config.memory.top_k == 5
-    assert config.memory.als_enabled is True
-
+    # Verify core config is configured as expected (no deprecated fields)
+    # Note: memory, translator, telemetry have been moved to extensions.json
+    
     # Verify providers are set up
     assert config.providers.openai.api_key != ""
     assert config.providers.gemini.api_key != ""
@@ -96,14 +93,12 @@ def test_minimal_config_validates():
     # Convert camelCase to snake_case and validate
     config = Config.model_validate(convert_keys(data))
 
-    # Verify defaults are applied
-    assert config.memory.enabled is True  # Default value
-    assert config.memory.provider == "local"  # Default value
+    # Verify defaults are applied (memory has been moved to extensions)
     assert config.agents.defaults.workspace == "~/.nanobot/workspace"  # Default value
 
 
-def test_old_config_with_extra_memory_fields_succeeds():
-    """Test that a config with old/extra memory fields succeeds (extra fields ignored)."""
+def test_old_config_with_deprecated_fields_migrates():
+    """Test that a config with deprecated fields gets migrated automatically."""
     old_config_data = {
         "agents": {
             "defaults": {
@@ -118,77 +113,68 @@ def test_old_config_with_extra_memory_fields_succeeds():
         "memory": {
             "enabled": True,
             "provider": "local",
-            "memory_type": "fractal",  # Extra field - will be ignored
-            "vector_store": "chromadb",  # Extra field - will be ignored
+            "memory_type": "fractal",  # Extra field - will be ignored by migration
+            "vector_store": "chromadb",  # Extra field - will be ignored by migration
             "als_enabled": True
         }
     }
 
-    # This should succeed - extra fields are simply ignored
-    config = Config.model_validate(convert_keys(old_config_data))
-    assert config.memory.enabled is True
-    assert config.memory.provider == "local"
-    assert config.memory.als_enabled is True
+    # Create a temp file to test migration
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmpdir:
+        config_path = Path(tmpdir) / "config.json"
+        with open(config_path, "w") as f:
+            json.dump(old_config_data, f)
+        
+        # Load config with auto-migration enabled
+        from nanobot.config.loader import load_config
+        config = load_config(config_path, auto_migrate=True)
+        
+        # Verify core config is valid (memory field has been migrated)
+        assert config.agents.defaults.model == "gpt-4"
+        assert config.providers.openai.api_key == "test-key"
+        
+        # Verify extensions file was created
+        ext_path = config_path.parent / "extensions.json"
+        assert ext_path.exists()
 
-    # Extra fields should not be in the model
-    assert not hasattr(config.memory, 'memory_type')
-    assert not hasattr(config.memory, 'vector_store')
 
+def test_extensions_example_validates():
+    """Test that extensions.example.json has valid structure."""
+    example_path = Path(__file__).parent.parent / "extensions.example.json"
 
-def test_config_with_all_memory_fields():
-    """Test that a config with all valid memory fields succeeds."""
-    full_config_data = {
-        "agents": {
-            "defaults": {
-                "model": "gpt-4"
-            }
-        },
-        "providers": {
-            "openai": {
-                "apiKey": "test-key"
-            }
-        },
-        "memory": {
-            "enabled": True,
-            "provider": "mem0",
-            "topK": 10,
-            "archiveDir": "my_archives",
-            "alsEnabled": False,
-            "mem0ApiKey": "mem0-key",
-            "mem0UserId": "user123",
-            "mem0OrgId": "org456",
-            "mem0ProjectId": "proj789",
-            "mem0Version": "v2.0",
-            "embeddingModel": "text-embedding-3-large",
-            "embeddingDim": 3072,
-            "useHybridSearch": False,
-            "latentRetryAttempts": 4,
-            "latentRetryMinWait": 0.5,
-            "latentRetryMaxWait": 10.0,
-            "latentRetryMultiplier": 2.0,
-        }
-    }
+    # Load and validate structure
+    with open(example_path) as f:
+        data = json.load(f)
 
-    config = Config.model_validate(convert_keys(full_config_data))
-
-    # Verify all fields are set correctly
-    assert config.memory.enabled is True
-    assert config.memory.provider == "mem0"
-    assert config.memory.top_k == 10
-    assert config.memory.archive_dir == "my_archives"
-    assert config.memory.als_enabled is False
-    assert config.memory.mem0_api_key == "mem0-key"
-    assert config.memory.mem0_user_id == "user123"
-    assert config.memory.mem0_org_id == "org456"
-    assert config.memory.mem0_project_id == "proj789"
-    assert config.memory.mem0_version == "v2.0"
-    assert config.memory.embedding_model == "text-embedding-3-large"
-    assert config.memory.embedding_dim == 3072
-    assert config.memory.use_hybrid_search is False
-    assert config.memory.latent_retry_attempts == 4
-    assert config.memory.latent_retry_min_wait == 0.5
-    assert config.memory.latent_retry_max_wait == 10.0
-    assert config.memory.latent_retry_multiplier == 2.0
+    # Verify it has the expected structure
+    assert "extensions" in data
+    ext = data["extensions"]
+    
+    # Verify all expected extension sections exist
+    assert "memory" in ext
+    assert "translator" in ext
+    assert "telemetry" in ext
+    assert "rate_limit" in ext
+    assert "custom" in ext
+    
+    # Verify memory extension has expected fields
+    assert ext["memory"]["enabled"] is True
+    assert ext["memory"]["provider"] == "local"
+    assert ext["memory"]["topK"] == 5
+    
+    # Verify telemetry extension
+    assert ext["telemetry"]["enabled"] is True
+    assert ext["telemetry"]["port"] == 9090
+    
+    # Verify rate_limit extension
+    assert ext["rate_limit"]["enabled"] is True
+    assert ext["rate_limit"]["max_calls"] == 10
+    assert ext["rate_limit"]["window_seconds"] == 60
+    
+    # Verify custom extension
+    assert ext["custom"]["enable_quantum_latent"] is True
+    assert ext["custom"]["use_keyring"] is True
 
 
 def test_multi_provider_config():

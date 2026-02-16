@@ -5,6 +5,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from nanobot.config.loader import get_config_path, load_config
 from nanobot.config.schema import Config, MemoryConfig
+from nanobot.config.extensions import ExtensionConfigLoader, get_extension_loader
+from nanobot.config.migration import ConfigMigrator, migrate_config
 
 
 class AgentConfig(BaseSettings):
@@ -30,4 +32,14 @@ class AgentConfig(BaseSettings):
 
 settings = AgentConfig()
 
-__all__ = ["Config", "load_config", "get_config_path", "AgentConfig", "settings"]
+__all__ = [
+    "Config",
+    "load_config",
+    "get_config_path",
+    "AgentConfig",
+    "settings",
+    "ExtensionConfigLoader",
+    "get_extension_loader",
+    "ConfigMigrator",
+    "migrate_config",
+]

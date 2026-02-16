@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.config.loader import load_config
+from nanobot.config import get_extension_loader
 
 try:
     from fastapi import APIRouter
@@ -25,16 +26,28 @@ def _version() -> str:
 def build_health_payload() -> dict[str, Any]:
     """Build health payload from current settings."""
     config = load_config()
+    loader = get_extension_loader()
+    
+    # Get memory config from extensions
+    memory_config = loader.get_memory_config()
+    memory_enabled = memory_config.get("enabled", True) if memory_config else True
+    entanglement_weight = memory_config.get("entanglement_weight", 0.3) if memory_config else 0.3
+    latent_max_depth = memory_config.get("latent_max_depth", 1) if memory_config else 1
+    
+    # Get custom config for quantum latent
+    custom_config = loader.get_custom_config()
+    enable_quantum_latent = custom_config.get("enable_quantum_latent", True) if custom_config else True
+    
     payload = {
         "status": "ok",
         "version": _version(),
         "memory": {
-            "enabled": config.memory.enabled,
-            "entanglement_weight": config.memory.entanglement_weight,
+            "enabled": memory_enabled,
+            "entanglement_weight": entanglement_weight,
         },
         "latent_reasoning": {
-            "enabled": config.enable_quantum_latent,
-            "depth": config.memory.latent_max_depth,
+            "enabled": enable_quantum_latent,
+            "depth": latent_max_depth,
         },
     }
 

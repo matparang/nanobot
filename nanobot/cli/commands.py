@@ -200,9 +200,16 @@ def migrate_keys():
     from nanobot.config.keyring import KeyringManager
     from nanobot.config.loader import load_config
     from nanobot.providers.registry import PROVIDERS
+    from nanobot.config import get_extension_loader
 
     config = load_config()
-    km = KeyringManager(use_keyring=config.use_keyring)
+    
+    # Get use_keyring from extensions or default to True
+    loader = get_extension_loader()
+    custom_config = loader.get_custom_config()
+    use_keyring = custom_config.get("use_keyring", True) if custom_config else True
+    
+    km = KeyringManager(use_keyring=use_keyring)
     if not km.use_keyring:
         console.print("[yellow]Keyring backend is unavailable; keeping plain-text configuration.[/yellow]")
         raise typer.Exit()
@@ -304,10 +311,18 @@ def _make_provider(config):
     """Create LiteLLMProvider from config. Exits if no API key found."""
     from nanobot.config.keyring import KeyringManager, load_api_key
     from nanobot.providers.litellm_provider import LiteLLMProvider
+    from nanobot.config import get_extension_loader
+    
     p = config.get_provider()
     provider_name = config.get_provider_name()
     model = config.agents.defaults.model
-    km = KeyringManager(use_keyring=config.use_keyring)
+    
+    # Get use_keyring from extensions or default to True
+    loader = get_extension_loader()
+    custom_config = loader.get_custom_config()
+    use_keyring = custom_config.get("use_keyring", True) if custom_config else True
+    
+    km = KeyringManager(use_keyring=use_keyring)
     api_key = load_api_key(provider_name or "", p.api_key if p else "", km) if p else ""
     if not api_key and not model.startswith("bedrock/"):
         console.print("[red]Error: No API key configured.[/red]")
@@ -328,49 +343,76 @@ def _make_provider(config):
 
 
 def _get_memory_config(config: "Config") -> dict:
-    """Extract memory configuration from global config."""
+    """Extract memory configuration from extensions config."""
+    from nanobot.config import get_extension_loader
+    
+    loader = get_extension_loader()
+    memory_ext = loader.get_memory_config()
+    
+    if memory_ext:
+        return memory_ext
+    
+    # Return default memory config if no extension config exists
     return {
-        "enabled": config.memory.enabled,
-        "provider": config.memory.provider,
-        "top_k": config.memory.top_k,
-        "mem0_api_key": config.memory.mem0_api_key,
-        "mem0_user_id": config.memory.mem0_user_id,
-        "mem0_org_id": config.memory.mem0_org_id,
-        "mem0_project_id": config.memory.mem0_project_id,
-        "embedding_model": config.memory.embedding_model,
-        "embedding_dim": config.memory.embedding_dim,
-        "use_hybrid_search": config.memory.use_hybrid_search,
-        "clarify_entropy_threshold": config.memory.clarify_entropy_threshold,
-        "latent_timeout_seconds": config.memory.latent_timeout_seconds,
-        "max_context_nodes": config.memory.max_context_nodes,
-        "semantic_weight": config.memory.semantic_weight,
-        "entanglement_weight": config.memory.entanglement_weight,
-        "importance_weight": config.memory.importance_weight,
-        "latent_max_depth": config.memory.latent_max_depth,
-        "beam_width": config.memory.beam_width,
-        "monte_carlo_samples": config.memory.monte_carlo_samples,
-        "latent_retry_attempts": config.memory.latent_retry_attempts,
-        "latent_retry_min_wait": config.memory.latent_retry_min_wait,
-        "latent_retry_max_wait": config.memory.latent_retry_max_wait,
-        "latent_retry_multiplier": config.memory.latent_retry_multiplier,
-        "importance_decay_rate": config.memory.importance_decay_rate,
+        "enabled": True,
+        "provider": "local",
+        "top_k": 5,
+        "mem0_api_key": "",
+        "mem0_user_id": "nanobot_user",
+        "mem0_org_id": "",
+        "mem0_project_id": "",
+        "embedding_model": "text-embedding-3-small",
+        "embedding_dim": 1536,
+        "use_hybrid_search": True,
+        "clarify_entropy_threshold": 0.8,
+        "latent_timeout_seconds": 10,
+        "max_context_nodes": 5,
+        "semantic_weight": 0.7,
+        "entanglement_weight": 0.3,
+        "importance_weight": 0.0,
+        "latent_max_depth": 1,
+        "beam_width": 3,
+        "monte_carlo_samples": 0,
+        "latent_retry_attempts": 3,
+        "latent_retry_min_wait": 1.0,
+        "latent_retry_max_wait": 5.0,
+        "latent_retry_multiplier": 1.0,
+        "importance_decay_rate": 0.01,
     }
 
 
 def _get_rate_limit_config(config: "Config") -> dict:
-    """Extract rate limit configuration from global config."""
+    """Extract rate limit configuration from extensions config."""
+    from nanobot.config import get_extension_loader
+    
+    loader = get_extension_loader()
+    rate_limit_ext = loader.get_rate_limit_config()
+    
+    if rate_limit_ext:
+        return rate_limit_ext
+    
+    # Return default rate limit config if no extension config exists
     return {
-        "enabled": config.rate_limit_enabled,
-        "max_calls": config.rate_limit_max_calls,
-        "window_seconds": config.rate_limit_window_seconds,
+        "enabled": True,
+        "max_calls": 10,
+        "window_seconds": 60,
     }
 
 
 def _get_telemetry_config(config: "Config") -> dict:
-    """Extract telemetry configuration from global config."""
+    """Extract telemetry configuration from extensions config."""
+    from nanobot.config import get_extension_loader
+    
+    loader = get_extension_loader()
+    telemetry_ext = loader.get_telemetry_config()
+    
+    if telemetry_ext:
+        return telemetry_ext
+    
+    # Return default telemetry config if no extension config exists
     return {
-        "enabled": config.telemetry.enabled,
-        "port": config.telemetry.port,
+        "enabled": True,
+        "port": 9090,
     }
 
 

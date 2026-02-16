@@ -162,20 +162,5 @@
       "timeout": 60
     },
     "restrictToWorkspace": false
-  },
-  "memory": {
-    "enabled": true,
-    "provider": "local",
-    "topK": 5,
-    "archiveDir": "archives",
-    "alsEnabled": true,
-    "mem0ApiKey": "",
-    "mem0UserId": "nanobot_user",
-    "mem0OrgId": "",
-    "mem0ProjectId": "",
-    "mem0Version": "v1.1",
-    "embeddingModel": "text-embedding-3-small",
-    "embeddingDim": 1536,
-    "useHybridSearch": true
   }
 }

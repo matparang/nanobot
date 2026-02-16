@@ -18,12 +18,15 @@ def get_data_dir() -> Path:
     return get_data_path()
 
 
-def load_config(config_path: Path | None = None) -> Config:
+def load_config(config_path: Path | None = None, auto_migrate: bool = True) -> Config:
     """
     Load configuration from file or create default.
     
+    Automatically migrates deprecated fields to extensions.json if enabled.
+    
     Args:
         config_path: Optional path to config file. Uses default if not provided.
+        auto_migrate: If True, automatically migrate deprecated fields to extensions.json
     
     Returns:
         Loaded configuration object.
@@ -34,6 +37,11 @@ def load_config(config_path: Path | None = None) -> Config:
         try:
             with open(path) as f:
                 data = json.load(f)
+            
+            # Perform automatic migration if enabled
+            if auto_migrate:
+                data = _migrate_deprecated_fields(data, path)
+            
             data = _migrate_config(data)
             return Config.model_validate(convert_keys(data))
         except (json.JSONDecodeError, ValueError) as e:
@@ -69,6 +77,40 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+    return data
+
+
+def _migrate_deprecated_fields(data: dict, config_path: Path) -> dict:
+    """
+    Migrate deprecated fields from config to extensions.json.
+    
+    Checks for deprecated fields and if found, separates them into extensions.json
+    while removing them from the main config.
+    
+    Args:
+        data: Configuration data dictionary
+        config_path: Path to the config file
+    
+    Returns:
+        Config data with deprecated fields removed
+    """
+    from nanobot.config.migration import DEPRECATED_FIELDS, ConfigMigrator
+    
+    # Check if any deprecated fields are present
+    has_deprecated = any(key in data for key in DEPRECATED_FIELDS)
+    
+    if has_deprecated:
+        # Use the migrator to separate and save
+        migrator = ConfigMigrator(config_path)
+        core_config, extensions_config = migrator.migrate()
+        
+        # Save the extensions config
+        if extensions_config.get("extensions"):
+            migrator.save_extensions(extensions_config)
+        
+        # Return the core config (without deprecated fields)
+        return core_config
+    
     return data
 
 

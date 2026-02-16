@@ -1,0 +1,57 @@
+{
+  "extensions": {
+    "memory": {
+      "enabled": true,
+      "provider": "local",
+      "topK": 5,
+      "archiveDir": "archives",
+      "alsEnabled": true,
+      "mem0ApiKey": "",
+      "mem0UserId": "nanobot_user",
+      "mem0OrgId": "",
+      "mem0ProjectId": "",
+      "mem0Version": "v1.1",
+      "embeddingModel": "text-embedding-3-small",
+      "embeddingDim": 1536,
+      "useHybridSearch": true,
+      "clarifyEntropyThreshold": 0.8,
+      "latentTimeoutSeconds": 10,
+      "maxContextNodes": 5,
+      "semanticWeight": 0.7,
+      "entanglementWeight": 0.3,
+      "importanceWeight": 0.0,
+      "latentMaxDepth": 1,
+      "beamWidth": 3,
+      "monteCarloSamples": 0,
+      "latentRetryAttempts": 3,
+      "latentRetryMinWait": 1.0,
+      "latentRetryMaxWait": 5.0,
+      "latentRetryMultiplier": 1.0,
+      "importanceDecayRate": 0.01
+    },
+    "translator": {
+      "enabled": true,
+      "autoSyncOnStartup": true,
+      "watchForChanges": false,
+      "syncDirection": "md_to_yaml",
+      "excludedFiles": [
+        "README.md",
+        "CHANGELOG.md",
+        "IMPLEMENTATION_SUMMARY.md"
+      ]
+    },
+    "telemetry": {
+      "enabled": true,
+      "port": 9090
+    },
+    "rate_limit": {
+      "enabled": true,
+      "max_calls": 10,
+      "window_seconds": 60
+    },
+    "custom": {
+      "enable_quantum_latent": true,
+      "use_keyring": true
+    }
+  }
+}
