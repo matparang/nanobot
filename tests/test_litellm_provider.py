@@ -6,19 +6,25 @@ import pytest
 
 from nanobot.providers.base import LLMResponse
 from nanobot.providers.litellm_provider import LiteLLMProvider
+from nanobot.runtime.state import state
 
 
 @pytest.mark.asyncio
 async def test_chat_passes_tools_to_local_curl() -> None:
-    provider = LiteLLMProvider(api_base="http://localhost:11434")
-    provider._chat_via_curl = AsyncMock(return_value=LLMResponse(content="ok"))
+    previous = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = False
+        provider = LiteLLMProvider(api_base="http://localhost:11434")
+        provider._chat_via_curl = AsyncMock(return_value=LLMResponse(content="ok"))
 
-    messages = [{"role": "user", "content": "hi"}]
-    tools = [{"type": "function", "function": {"name": "ping", "parameters": {"type": "object"}}}]
+        messages = [{"role": "user", "content": "hi"}]
+        tools = [{"type": "function", "function": {"name": "ping", "parameters": {"type": "object"}}}]
 
-    await provider.chat(messages=messages, tools=tools, model="demo-model")
+        await provider.chat(messages=messages, tools=tools, model="demo-model")
 
-    provider._chat_via_curl.assert_awaited_once_with(messages, "demo-model", 4096, 0.7, tools)
+        provider._chat_via_curl.assert_awaited_once_with(messages, "demo-model", 512, 0.7, tools)
+    finally:
+        state.latent_reasoning_enabled = previous
 
 
 @pytest.mark.asyncio
@@ -113,3 +119,57 @@ async def test_chat_via_curl_handles_api_base_with_v1_and_ollama_prefix(
     )
 
     assert response.content == "ok"
+
+
+@pytest.mark.asyncio
+async def test_chat_adds_concise_instruction_when_latent_reasoning_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = False
+        provider = LiteLLMProvider()
+        captured_kwargs = {}
+
+        async def fake_acompletion(**kwargs):
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")]
+            )
+
+        monkeypatch.setattr("nanobot.providers.litellm_provider.acompletion", fake_acompletion)
+        await provider.chat(messages=[{"role": "system", "content": "Base prompt"}], model="demo-model")
+
+        assert captured_kwargs["max_tokens"] == 512
+        assert captured_kwargs["messages"][0]["content"].endswith("Respond concisely.")
+    finally:
+        state.latent_reasoning_enabled = previous
+
+
+@pytest.mark.asyncio
+async def test_chat_adds_deep_reasoning_instruction_when_latent_reasoning_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    previous = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        provider = LiteLLMProvider()
+        captured_kwargs = {}
+
+        async def fake_acompletion(**kwargs):
+            captured_kwargs.update(kwargs)
+            return SimpleNamespace(
+                choices=[SimpleNamespace(message=SimpleNamespace(content="ok"), finish_reason="stop")]
+            )
+
+        monkeypatch.setattr("nanobot.providers.litellm_provider.acompletion", fake_acompletion)
+        await provider.chat(
+            messages=[{"role": "system", "content": "Base prompt"}],
+            model="demo-model",
+            max_tokens=128,
+        )
+
+        assert captured_kwargs["max_tokens"] == 1024
+        assert "Use step-by-step reasoning." in captured_kwargs["messages"][0]["content"]
+    finally:
+        state.latent_reasoning_enabled = previous

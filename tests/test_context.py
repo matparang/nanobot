@@ -19,6 +19,7 @@ from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Config
 from nanobot.gateway import build_health_payload
 from nanobot.providers.base import LLMResponse
+from nanobot.runtime.state import state
 
 
 def test_cognitive_directive_in_system_prompt():
@@ -245,26 +246,50 @@ async def test_latent_retry_attempts_are_configurable():
 
 @pytest.mark.asyncio
 async def test_agent_loop_skips_latent_reasoning_when_disabled():
-    with tempfile.TemporaryDirectory() as tmpdir:
-        provider = SimpleNamespace(
-            get_default_model=lambda: "test-model",
-            chat=AsyncMock(return_value=LLMResponse(content="ok")),
-        )
-        loop = AgentLoop(
-            bus=MessageBus(),
-            provider=provider,
-            workspace=Path(tmpdir),
-            enable_latent_reasoning=False,
-        )
-        loop.latent_engine.reason = AsyncMock()
+    previous = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = False
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = SimpleNamespace(
+                get_default_model=lambda: "test-model",
+                chat=AsyncMock(return_value=LLMResponse(content="ok")),
+            )
+            loop = AgentLoop(
+                bus=MessageBus(),
+                provider=provider,
+                workspace=Path(tmpdir),
+                enable_latent_reasoning=False,
+            )
+            loop.latent_engine.reason = AsyncMock()
 
-        response = await loop._process_message(
-            InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
-        )
+            response = await loop._process_message(
+                InboundMessage(channel="cli", sender_id="user", chat_id="test", content="hello")
+            )
 
-        assert response is not None
-        assert response.content == "ok"
-        loop.latent_engine.reason.assert_not_awaited()
+            assert response is not None
+            assert response.content == "ok"
+            loop.latent_engine.reason.assert_not_awaited()
+    finally:
+        state.latent_reasoning_enabled = previous
+
+
+def test_agent_loop_enable_latent_reasoning_reads_runtime_state():
+    previous = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        with tempfile.TemporaryDirectory() as tmpdir:
+            provider = SimpleNamespace(get_default_model=lambda: "test-model", chat=AsyncMock())
+            loop = AgentLoop(
+                bus=MessageBus(),
+                provider=provider,
+                workspace=Path(tmpdir),
+                enable_latent_reasoning=True,
+            )
+            assert loop.enable_latent_reasoning is True
+            state.latent_reasoning_enabled = False
+            assert loop.enable_latent_reasoning is False
+    finally:
+        state.latent_reasoning_enabled = previous
 
 
 def test_entanglement_hop_limit_prevents_deep_chain():

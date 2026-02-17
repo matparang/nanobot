@@ -1,6 +1,7 @@
 """LiteLLM provider implementation for multi-provider support."""
 
 import asyncio
+import copy
 import json
 import os
 import subprocess
@@ -13,6 +14,7 @@ from litellm import acompletion
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.registry import find_by_model, find_gateway
+from nanobot.runtime.state import state
 
 
 class LiteLLMProvider(LLMProvider):
@@ -129,6 +131,26 @@ class LiteLLMProvider(LLMProvider):
             LLMResponse with content and/or tool calls.
         """
         model = self._resolve_model(model or self.default_model)
+        prepared_messages = copy.deepcopy(messages)
+
+        if state.latent_reasoning_enabled:
+            max_tokens = max(max_tokens, 1024)
+            for msg in prepared_messages:
+                if msg.get("role") == "system":
+                    content = msg.get("content", "")
+                    if "step-by-step reasoning" not in content.lower():
+                        msg["content"] = (
+                            f"{content}\n\nUse step-by-step reasoning. Think carefully before answering."
+                        ).strip()
+                    break
+        else:
+            max_tokens = min(max_tokens, 512)
+            for msg in prepared_messages:
+                if msg.get("role") == "system":
+                    content = msg.get("content", "")
+                    if "respond concisely" not in content.lower():
+                        msg["content"] = f"{content}\n\nRespond concisely.".strip()
+                    break
 
         # Special handling for local endpoints (Ollama, vLLM)
         if self.api_base:
@@ -146,11 +168,11 @@ class LiteLLMProvider(LLMProvider):
                         is_loopback = True
 
             if is_loopback:
-                return await self._chat_via_curl(messages, model, max_tokens, temperature, tools)
+                return await self._chat_via_curl(prepared_messages, model, max_tokens, temperature, tools)
 
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": prepared_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }

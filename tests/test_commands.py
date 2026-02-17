@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from nanobot.cli.commands import app
+from nanobot.runtime.state import state
 
 runner = CliRunner()
 
@@ -90,3 +91,22 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
     assert "Created workspace" not in result.stdout
     assert "Created AGENTS.md" in result.stdout
     assert (workspace_dir / "AGENTS.md").exists()
+
+
+def test_latent_command_toggles_runtime_state():
+    previous = state.latent_reasoning_enabled
+    try:
+        result = runner.invoke(app, ["latent"], input="1\n")
+        assert result.exit_code == 0
+        assert state.latent_reasoning_enabled is True
+
+        result = runner.invoke(app, ["latent"], input="2\n")
+        assert result.exit_code == 0
+        assert state.latent_reasoning_enabled is False
+    finally:
+        state.latent_reasoning_enabled = previous
+
+
+def test_latent_command_rejects_invalid_choice():
+    result = runner.invoke(app, ["latent"], input="99\n")
+    assert result.exit_code == 1

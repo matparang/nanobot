@@ -24,6 +24,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config import settings
 from nanobot.middleware.rate_limiter import RateLimitConfig, RateLimiter
 from nanobot.providers.base import LLMProvider
+from nanobot.runtime.state import state
 from nanobot.session.manager import SessionManager
 from nanobot.telemetry.exporter import MetricsExporter
 from nanobot.telemetry.metrics import (
@@ -78,7 +79,6 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
-        self.enable_latent_reasoning = enable_latent_reasoning
         self.memory_config = memory_config or {}
         self.clarify_entropy_threshold = float(
             self.memory_config.get("clarify_entropy_threshold", settings.clarify_entropy_threshold)
@@ -148,6 +148,11 @@ class AgentLoop:
                         logger.info(f"MCP integration initialized with {len(self._mcp_configs)} servers")
                 except Exception as e:
                     logger.warning(f"MCP initialization failed: {e}")
+
+    @property
+    def enable_latent_reasoning(self) -> bool:
+        """Get effective latent reasoning state from global runtime."""
+        return state.latent_reasoning_enabled
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
