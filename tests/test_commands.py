@@ -162,6 +162,29 @@ def test_toggle_commands_accept_direct_action_arguments():
         ) = previous
 
 
+def test_reasoning_commands_mode_and_toggles():
+    previous = state.get_all_toggles()
+    try:
+        result = runner.invoke(app, ["reasoning", "mode", "system1_only"])
+        assert result.exit_code == 0
+        assert state.light_reasoner_enabled is True
+        assert state.latent_reasoning_enabled is False
+
+        result = runner.invoke(app, ["reasoning", "hybrid", "on"])
+        assert result.exit_code == 0
+        assert state.dual_layer_enabled is True
+
+        result = runner.invoke(app, ["reasoning", "system2", "on"])
+        assert result.exit_code == 0
+        assert state.latent_reasoning_enabled is True
+
+        result = runner.invoke(app, ["reasoning", "chi", "off"])
+        assert result.exit_code == 0
+        assert state.chi_tracking_enabled is False
+    finally:
+        state.restore_toggles(previous)
+
+
 def test_baseline_command_enter_and_exit():
     previous = state.get_all_toggles()
     try:

@@ -9,6 +9,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.dual_reasoning import DualReasoningOrchestrator
 from nanobot.agent.latent import LatentReasoner
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
@@ -24,6 +25,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config import settings
 from nanobot.middleware.rate_limiter import RateLimitConfig, RateLimiter
 from nanobot.providers.base import LLMProvider
+from nanobot.runtime.chi_tracker import ChiTracker
 from nanobot.runtime.state import state
 from nanobot.session.manager import SessionManager
 from nanobot.telemetry.exporter import MetricsExporter
@@ -95,6 +97,13 @@ class AgentLoop:
             provider=self.provider,
             model=self.model,
             timeout_seconds=latent_timeout_seconds,
+            memory_config=self.memory_config,
+        )
+        self.chi_tracker = ChiTracker()
+        self.dual_reasoner = DualReasoningOrchestrator(
+            provider=self.provider,
+            model=self.model,
+            chi_tracker=self.chi_tracker,
             memory_config=self.memory_config,
         )
         self.sessions = session_manager or SessionManager(workspace)
@@ -318,7 +327,57 @@ class AgentLoop:
         latent_context = self.context.memory._format_nodes(latent_nodes)
         latent_state = None
         should_clarify = False
-        if self.enable_latent_reasoning:
+        if state.dual_layer_enabled:
+            latent_start = time.time()
+            dual_result = await self.dual_reasoner.reason(
+                user_message=msg.content,
+                context_summary=latent_context,
+            )
+            latent_reasoning_duration.observe(time.time() - latent_start)
+            latent_state = dual_result.final_state
+            should_clarify = (
+                dual_result.system_used != "system1"
+                and latent_state.entropy > self.clarify_entropy_threshold
+            )
+            if state.reasoning_audit_enabled:
+                from nanobot.cli.audit import AuditAction, audit_log
+
+                audit_log(
+                    AuditAction.REASONING_COMPLETED,
+                    {
+                        "system_used": dual_result.system_used,
+                        "confidence": (
+                            dual_result.system1_result.confidence
+                            if dual_result.system1_result
+                            else 0.0
+                        ),
+                        "entropy": latent_state.entropy,
+                        "chi_cost": dual_result.total_chi_cost,
+                        "latency_ms": dual_result.latency_ms,
+                        "escalated": dual_result.escalated,
+                        "hypothesis_count": len(latent_state.hypotheses),
+                        "pattern_cache_hit": (
+                            dual_result.system1_result.pattern_hit
+                            if dual_result.system1_result
+                            else False
+                        ),
+                        "correctness": None,
+                    },
+                    source="dual_reasoning",
+                )
+                if dual_result.escalated:
+                    audit_log(
+                        AuditAction.REASONING_ESCALATED,
+                        {"trace": dual_result.reasoning_trace},
+                        source="dual_reasoning",
+                    )
+                if state.chi_tracking_enabled:
+                    audit_log(
+                        AuditAction.CHI_BUDGET_UPDATE,
+                        self.chi_tracker.get_budget_status(),
+                        source="dual_reasoning",
+                    )
+        elif self.enable_latent_reasoning:
             latent_start = time.time()
             latent_state = await self.latent_engine.reason(user_message=msg.content, context_summary=latent_context)
             latent_reasoning_duration.observe(time.time() - latent_start)

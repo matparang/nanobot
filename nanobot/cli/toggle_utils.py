@@ -79,6 +79,10 @@ def batch_toggle(
         "entangled": "entangled_memory_enabled",
         "triune": "triune_memory_enabled",
         "heartbeat": "heartbeat_enabled",
+        "light_reasoner": "light_reasoner_enabled",
+        "dual_layer": "dual_layer_enabled",
+        "chi_tracking": "chi_tracking_enabled",
+        "reasoning_audit": "reasoning_audit_enabled",
     }
     for name, new_value in toggles.items():
         attr_name = attr_mapping.get(name, name)
@@ -102,6 +106,10 @@ def baseline_toggle_all(
         "entangled": enable,
         "triune": enable,
         "heartbeat": enable,
+        "light_reasoner": enable,
+        "dual_layer": enable,
+        "chi_tracking": enable,
+        "reasoning_audit": enable,
     }
     results = batch_toggle(state_obj, all_features, log_source)
     audit_log(

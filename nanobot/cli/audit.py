@@ -16,6 +16,9 @@ class AuditAction(str, Enum):
     BASELINE_EXIT = "baseline_exit"
     SERVICE_SUSPEND = "service_suspend"
     SERVICE_RESUME = "service_resume"
+    REASONING_COMPLETED = "reasoning_completed"
+    REASONING_ESCALATED = "reasoning_escalated"
+    CHI_BUDGET_UPDATE = "chi_budget_update"
 
 
 def get_audit_log_path() -> Path:

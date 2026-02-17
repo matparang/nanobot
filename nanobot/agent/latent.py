@@ -201,6 +201,11 @@ class LatentReasoner:
         probabilities = [max(h.confidence, 0.0) / total_confidence for h in hypotheses]
         return -sum(p * math.log2(p) for p in probabilities if p > 0)
 
+    @staticmethod
+    def estimate_chi_cost(hypothesis_count: int, entropy: float) -> float:
+        """Estimate chi spend for deep reasoning based on explored hypotheses and ambiguity."""
+        return max(1.0, 0.5 + (0.1 * max(hypothesis_count, 1)) + max(entropy, 0.0))
+
     async def _monte_carlo_expand(
         self,
         hypotheses: list[Hypothesis],

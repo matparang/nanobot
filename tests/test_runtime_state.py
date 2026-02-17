@@ -43,3 +43,24 @@ def test_runtime_state_enter_exit_baseline_tracking():
         if state.baseline_active:
             state.exit_baseline_mode(restore=False)
         state.restore_toggles(previous)
+
+
+def test_runtime_state_reasoning_modes():
+    previous = state.get_all_toggles()
+    try:
+        state.set_reasoning_mode("system1_only")
+        assert state.light_reasoner_enabled is True
+        assert state.latent_reasoning_enabled is False
+        assert state.dual_layer_enabled is False
+
+        state.set_reasoning_mode("system2_only")
+        assert state.light_reasoner_enabled is False
+        assert state.latent_reasoning_enabled is True
+        assert state.dual_layer_enabled is False
+
+        state.set_reasoning_mode("hybrid")
+        assert state.light_reasoner_enabled is True
+        assert state.latent_reasoning_enabled is True
+        assert state.dual_layer_enabled is True
+    finally:
+        state.restore_toggles(previous)

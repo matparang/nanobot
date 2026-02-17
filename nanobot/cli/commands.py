@@ -19,6 +19,7 @@ from rich.text import Text
 
 from nanobot import __logo__, __version__
 from nanobot.cli.audit import AuditAction, audit_log
+from nanobot.cli.reasoning_commands import reasoning_app
 from nanobot.cli.state_commands import state_app
 from nanobot.cli.state_manager import clear_all_baseline
 from nanobot.cli.toggle_utils import get_toggle_status_table, toggle_feature
@@ -1194,6 +1195,7 @@ def status():
 from nanobot.cli.triune_commands import triune_app
 
 app.add_typer(triune_app, name="triune")
+app.add_typer(reasoning_app, name="reasoning")
 
 app.add_typer(state_app, name="state")
 
