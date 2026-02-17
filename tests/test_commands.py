@@ -138,3 +138,25 @@ def test_memory_toggle_commands_update_runtime_state():
         state.fractal_memory_enabled = previous_fractal
         state.entangled_memory_enabled = previous_entangled
         state.triune_memory_enabled = previous_triune
+
+
+def test_toggle_commands_accept_direct_action_arguments():
+    previous = state.latent_reasoning_enabled, state.mem0_enabled, state.heartbeat_enabled
+    try:
+        result = runner.invoke(app, ["latent", "on"])
+        assert result.exit_code == 0
+        assert state.latent_reasoning_enabled is True
+
+        result = runner.invoke(app, ["mem0", "off"])
+        assert result.exit_code == 0
+        assert state.mem0_enabled is False
+
+        result = runner.invoke(app, ["heartbeat", "off"])
+        assert result.exit_code == 0
+        assert state.heartbeat_enabled is False
+    finally:
+        (
+            state.latent_reasoning_enabled,
+            state.mem0_enabled,
+            state.heartbeat_enabled,
+        ) = previous

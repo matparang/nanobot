@@ -19,9 +19,9 @@ console = Console()
 
 
 @triune_app.callback(invoke_without_command=True)
-def triune_callback(ctx: typer.Context) -> None:
+def triune_callback(ctx: typer.Context, action: str | None = typer.Argument(None)) -> None:
     if ctx.invoked_subcommand is None:
-        if not toggle_feature("triune", state, "triune_memory_enabled"):
+        if not toggle_feature("triune", state, "triune_memory_enabled", action or "interactive"):
             raise typer.Exit(code=1)
 
 

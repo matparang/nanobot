@@ -497,7 +497,7 @@ def gateway(
         workspace=config.workspace_path,
         on_heartbeat=on_heartbeat,
         interval_s=30 * 60,  # 30 minutes
-        enabled=True
+        enabled=state.heartbeat_enabled,
     )
 
     # Create channel manager
@@ -512,7 +512,9 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
-    console.print("[green]✓[/green] Heartbeat: every 30m")
+    console.print(
+        f"[green]✓[/green] Heartbeat: {'every 30m' if state.heartbeat_enabled else 'disabled'}"
+    )
 
     async def run():
         try:
@@ -533,30 +535,37 @@ def gateway(
 
 
 @app.command()
-def latent():
+def latent(action: str | None = typer.Argument(None)):
     """Toggle latent reasoning on or off."""
-    if not toggle_feature("latent", state, "latent_reasoning_enabled"):
+    if not toggle_feature("latent", state, "latent_reasoning_enabled", action or "interactive"):
         raise typer.Exit(code=1)
 
 
 @app.command()
-def mem0():
+def mem0(action: str | None = typer.Argument(None)):
     """Toggle mem0 integration on or off."""
-    if not toggle_feature("mem0", state, "mem0_enabled"):
+    if not toggle_feature("mem0", state, "mem0_enabled", action or "interactive"):
         raise typer.Exit(code=1)
 
 
 @app.command("fractal")
-def fractal_memory():
+def fractal_memory(action: str | None = typer.Argument(None)):
     """Toggle fractal memory on or off."""
-    if not toggle_feature("fractal", state, "fractal_memory_enabled"):
+    if not toggle_feature("fractal", state, "fractal_memory_enabled", action or "interactive"):
         raise typer.Exit(code=1)
 
 
 @app.command("entangled")
-def entangled_memory():
+def entangled_memory(action: str | None = typer.Argument(None)):
     """Toggle entangled memory on or off."""
-    if not toggle_feature("entangled", state, "entangled_memory_enabled"):
+    if not toggle_feature("entangled", state, "entangled_memory_enabled", action or "interactive"):
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def heartbeat(action: str | None = typer.Argument(None)):
+    """Toggle heartbeat on or off."""
+    if not toggle_feature("heartbeat", state, "heartbeat_enabled", action or "interactive"):
         raise typer.Exit(code=1)
 
 
