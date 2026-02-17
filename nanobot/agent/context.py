@@ -10,6 +10,7 @@ from typing import Any
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.memory_types import SuperpositionalState
 from nanobot.agent.skills import SkillsLoader
+from nanobot.runtime.state import state
 
 logger = logging.getLogger(__name__)
 
@@ -64,11 +65,12 @@ class ContextBuilder:
         parts.append(self._get_identity())
 
         # Bootstrap files
-        bootstrap = self._load_bootstrap_files()
-        if bootstrap:
-            parts.append(bootstrap)
+        if state.triune_memory_enabled:
+            bootstrap = self._load_bootstrap_files()
+            if bootstrap:
+                parts.append(bootstrap)
 
-        if latent_state:
+        if state.latent_reasoning_enabled and latent_state:
             top_intent = (
                 latent_state.hypotheses[0].intent
                 if latent_state.hypotheses
@@ -115,10 +117,15 @@ Do not ignore relevant memory.
             resource_parts.append(f"## Long-term Memory\n{core_memory}")
 
         # Fractal Nodes (token-efficient top-K retrieval)
-        if user_query:
+        if user_query and (state.mem0_enabled or state.fractal_memory_enabled):
             fractal_content = self.memory.retrieve_relevant_nodes(user_query, k=5)
             if fractal_content:
                 resource_parts.append(fractal_content)
+        if state.entangled_memory_enabled and user_query:
+            entangled_nodes = self.memory.get_entangled_context(user_query, top_k=5)
+            entangled_content = self.memory.format_nodes_for_context(entangled_nodes)
+            if entangled_content:
+                resource_parts.append(entangled_content)
 
         if resource_parts:
             parts.append("# RESOURCES & MEMORY\n\n" + "\n\n".join(resource_parts))

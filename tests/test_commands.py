@@ -110,3 +110,31 @@ def test_latent_command_toggles_runtime_state():
 def test_latent_command_rejects_invalid_choice():
     result = runner.invoke(app, ["latent"], input="99\n")
     assert result.exit_code == 1
+
+
+def test_memory_toggle_commands_update_runtime_state():
+    previous_mem0 = state.mem0_enabled
+    previous_fractal = state.fractal_memory_enabled
+    previous_entangled = state.entangled_memory_enabled
+    previous_triune = state.triune_memory_enabled
+    try:
+        result = runner.invoke(app, ["mem0"], input="1\n")
+        assert result.exit_code == 0
+        assert state.mem0_enabled is True
+
+        result = runner.invoke(app, ["fractal"], input="1\n")
+        assert result.exit_code == 0
+        assert state.fractal_memory_enabled is True
+
+        result = runner.invoke(app, ["entangled"], input="2\n")
+        assert result.exit_code == 0
+        assert state.entangled_memory_enabled is False
+
+        result = runner.invoke(app, ["triune"], input="2\n")
+        assert result.exit_code == 0
+        assert state.triune_memory_enabled is False
+    finally:
+        state.mem0_enabled = previous_mem0
+        state.fractal_memory_enabled = previous_fractal
+        state.entangled_memory_enabled = previous_entangled
+        state.triune_memory_enabled = previous_triune

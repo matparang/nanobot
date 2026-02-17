@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.memory_types import ActiveLearningState, ContentType, FractalNode
+from nanobot.runtime.state import state
 from nanobot.utils.helpers import ensure_dir
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,8 @@ class MemoryStore:
 
     def _init_provider(self) -> None:
         """Initialize memory provider based on configuration."""
+        if not state.mem0_enabled:
+            return
         provider_type = self.config.get("provider", "local")
 
         if provider_type == "mem0":
@@ -410,6 +413,9 @@ class MemoryStore:
         Returns:
             Formatted string with relevant memory nodes
         """
+        if not state.fractal_memory_enabled and not state.mem0_enabled:
+            return ""
+
         # Use mem0 provider if available
         if self._mem0_provider:
             try:
@@ -493,6 +499,17 @@ class MemoryStore:
             context_str += "\n"
 
         return context_str
+
+    def format_nodes_for_context(self, nodes: list[FractalNode]) -> str:
+        """Format retrieved nodes for prompt context.
+
+        Args:
+            nodes: Retrieved fractal or entangled memory nodes.
+
+        Returns:
+            A formatted markdown string suitable for context injection.
+        """
+        return self._format_nodes(nodes)
 
     def get_als_context(self) -> str:
         """

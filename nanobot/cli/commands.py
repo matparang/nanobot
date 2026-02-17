@@ -18,6 +18,7 @@ from rich.table import Table
 from rich.text import Text
 
 from nanobot import __logo__, __version__
+from nanobot.cli.toggle_utils import toggle_feature
 from nanobot.runtime.state import state
 
 app = typer.Typer(
@@ -534,22 +535,28 @@ def gateway(
 @app.command()
 def latent():
     """Toggle latent reasoning on or off."""
-    console.print("\n[bold cyan]Latent Reasoning Toggle[/bold cyan]")
-    console.print("1. ON  (Deep reasoning, higher latency)")
-    console.print("2. OFF (Concise, lower latency)")
+    if not toggle_feature("latent", state, "latent_reasoning_enabled"):
+        raise typer.Exit(code=1)
 
-    choice = typer.prompt("Select option", type=int)
 
-    if choice == 1:
-        state.latent_reasoning_enabled = True
-        console.print("[green]Latent reasoning ENABLED[/green]")
-        console.print("[dim]Nanobot will now think deeply before answering.[/dim]")
-    elif choice == 2:
-        state.latent_reasoning_enabled = False
-        console.print("[yellow]Latent reasoning DISABLED[/yellow]")
-        console.print("[dim]Nanobot will now respond concisely.[/dim]")
-    else:
-        console.print("[red]Invalid choice[/red]")
+@app.command()
+def mem0():
+    """Toggle mem0 integration on or off."""
+    if not toggle_feature("mem0", state, "mem0_enabled"):
+        raise typer.Exit(code=1)
+
+
+@app.command("fractal")
+def fractal_memory():
+    """Toggle fractal memory on or off."""
+    if not toggle_feature("fractal", state, "fractal_memory_enabled"):
+        raise typer.Exit(code=1)
+
+
+@app.command("entangled")
+def entangled_memory():
+    """Toggle entangled memory on or off."""
+    if not toggle_feature("entangled", state, "entangled_memory_enabled"):
         raise typer.Exit(code=1)
 
 

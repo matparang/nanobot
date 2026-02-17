@@ -6,6 +6,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from nanobot.cli.toggle_utils import toggle_feature
+from nanobot.runtime.state import state
 from nanobot.triune.verifier import TriuneVerifier
 
 triune_app = typer.Typer(
@@ -14,6 +16,13 @@ triune_app = typer.Typer(
 )
 
 console = Console()
+
+
+@triune_app.callback(invoke_without_command=True)
+def triune_callback(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is None:
+        if not toggle_feature("triune", state, "triune_memory_enabled"):
+            raise typer.Exit(code=1)
 
 
 @triune_app.command("verify")

@@ -67,6 +67,56 @@ def test_cognitive_directive_placement():
             assert cognitive_pos < resources_pos, "Cognitive directive should appear before resources section"
 
 
+def test_system_prompt_respects_runtime_memory_toggles(monkeypatch):
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir)
+        context = ContextBuilder(workspace)
+        latent_state = SuperpositionalState.model_validate_json(
+            '{"hypotheses":[{"intent":"test","confidence":1.0,"reasoning":"test"}],"entropy":0.1,"strategic_direction":"go"}'
+        )
+
+        monkeypatch.setattr(context, "_load_bootstrap_files", lambda: "BOOTSTRAP")
+        monkeypatch.setattr(context.memory, "get_als_context", lambda: "ALS")
+        monkeypatch.setattr(context.memory, "read_long_term", lambda: "CORE")
+        monkeypatch.setattr(context.memory, "retrieve_relevant_nodes", lambda *args, **kwargs: "FRACTAL")
+        monkeypatch.setattr(context.memory, "get_entangled_context", lambda *args, **kwargs: [])
+
+        previous = (
+            state.triune_memory_enabled,
+            state.latent_reasoning_enabled,
+            state.mem0_enabled,
+            state.fractal_memory_enabled,
+            state.entangled_memory_enabled,
+        )
+        try:
+            state.triune_memory_enabled = False
+            state.latent_reasoning_enabled = False
+            state.mem0_enabled = False
+            state.fractal_memory_enabled = False
+            state.entangled_memory_enabled = False
+            prompt = context.build_system_prompt(user_query="hello", latent_state=latent_state)
+            assert "BOOTSTRAP" not in prompt
+            assert "<latent_state>" not in prompt
+            assert "FRACTAL" not in prompt
+
+            state.triune_memory_enabled = True
+            state.latent_reasoning_enabled = True
+            state.fractal_memory_enabled = True
+            state.entangled_memory_enabled = True
+            prompt = context.build_system_prompt(user_query="hello", latent_state=latent_state)
+            assert "BOOTSTRAP" in prompt
+            assert "<latent_state>" in prompt
+            assert "FRACTAL" in prompt
+        finally:
+            (
+                state.triune_memory_enabled,
+                state.latent_reasoning_enabled,
+                state.mem0_enabled,
+                state.fractal_memory_enabled,
+                state.entangled_memory_enabled,
+            ) = previous
+
+
 def test_fractal_node_serialization():
     node = FractalNode(
         content="Test content",
@@ -119,6 +169,24 @@ def test_memory_normalization_logic():
         ranked = memory.get_entangled_context("alpha", top_k=2)
         assert ranked
         assert ranked[0].id == node_a.id
+
+
+def test_retrieve_relevant_nodes_respects_runtime_toggles():
+    previous = state.fractal_memory_enabled, state.mem0_enabled
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            memory = MemoryStore(Path(tmpdir))
+            memory.save_fractal_node(content="alpha", tags=["alpha"], summary="alpha summary")
+
+            state.fractal_memory_enabled = False
+            state.mem0_enabled = False
+            assert memory.retrieve_relevant_nodes("alpha", k=1) == ""
+
+            state.fractal_memory_enabled = True
+            result = memory.retrieve_relevant_nodes("alpha", k=1)
+            assert "Relevant Resources" in result
+    finally:
+        state.fractal_memory_enabled, state.mem0_enabled = previous
 
 
 def test_entanglement_cycle_detection():
