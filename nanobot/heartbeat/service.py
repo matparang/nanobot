@@ -6,6 +6,8 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
+from nanobot.runtime.state import state
+
 # Default interval: 30 minutes
 DEFAULT_HEARTBEAT_INTERVAL_S = 30 * 60
 
@@ -38,7 +40,7 @@ def _is_heartbeat_empty(content: str | None) -> bool:
 class HeartbeatService:
     """
     Periodic heartbeat service that wakes the agent to check for tasks.
-    
+
     The agent reads HEARTBEAT.md from the workspace and executes any
     tasks listed there. If nothing needs attention, it replies HEARTBEAT_OK.
     """
@@ -101,6 +103,18 @@ class HeartbeatService:
 
     async def _tick(self) -> None:
         """Execute a single heartbeat tick."""
+        if "heartbeat" in state.suspended_services:
+            logger.debug("Heartbeat: skipped (suspended)")
+            return
+
+        if state.baseline_active:
+            logger.debug("Heartbeat: skipped (baseline active)")
+            return
+
+        if not state.heartbeat_enabled:
+            logger.debug("Heartbeat: skipped (disabled)")
+            return
+
         content = self._read_heartbeat_file()
 
         # Skip if HEARTBEAT.md is empty or doesn't exist

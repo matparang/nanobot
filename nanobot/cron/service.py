@@ -10,6 +10,9 @@ from typing import Any, Callable, Coroutine
 from loguru import logger
 
 from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore
+from nanobot.runtime.state import state
+
+SUSPENDED_POLL_INTERVAL_S = 1.0
 
 
 def _now_ms() -> int:
@@ -187,7 +190,9 @@ class CronService:
             return
 
         delay_ms = max(0, next_wake - _now_ms())
-        delay_s = delay_ms / 1000
+        delay_s = (
+            SUSPENDED_POLL_INTERVAL_S if "cron" in state.suspended_services else delay_ms / 1000
+        )
 
         async def tick():
             await asyncio.sleep(delay_s)
@@ -199,6 +204,10 @@ class CronService:
     async def _on_timer(self) -> None:
         """Handle timer tick - run due jobs."""
         if not self._store:
+            return
+        if "cron" in state.suspended_services:
+            logger.debug("Cron: paused (suspended)")
+            self._arm_timer()
             return
 
         now = _now_ms()
@@ -219,9 +228,8 @@ class CronService:
         logger.info(f"Cron: executing job '{job.name}' ({job.id})")
 
         try:
-            response = None
             if self.on_job:
-                response = await self.on_job(job)
+                await self.on_job(job)
 
             job.state.last_status = "ok"
             job.state.last_error = None
