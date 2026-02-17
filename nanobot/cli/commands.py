@@ -18,7 +18,10 @@ from rich.table import Table
 from rich.text import Text
 
 from nanobot import __logo__, __version__
-from nanobot.cli.toggle_utils import toggle_feature
+from nanobot.cli.audit import AuditAction, audit_log
+from nanobot.cli.state_commands import state_app
+from nanobot.cli.state_manager import clear_all_baseline
+from nanobot.cli.toggle_utils import get_toggle_status_table, toggle_feature
 from nanobot.runtime.state import state
 
 app = typer.Typer(
@@ -569,6 +572,80 @@ def heartbeat(action: str | None = typer.Argument(None)):
         raise typer.Exit(code=1)
 
 
+@app.command()
+def baseline(
+    action: str = typer.Argument("enter", help="Action: enter, exit, status"),
+    clear_state: bool = typer.Option(False, "--clear-state", "-c", help="Clear persistent state"),
+    stop_services: bool = typer.Option(
+        True, "--stop-services/--no-stop-services", help="Suspend heartbeat and cron services"
+    ),
+    restore_on_exit: bool = typer.Option(
+        True, "--restore/--no-restore", help="Restore previous toggle state on exit"
+    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation prompts"),
+) -> None:
+    if action == "status":
+        _show_baseline_status(state)
+        return
+
+    if action == "enter":
+        if state.baseline_active:
+            console.print("[yellow]Already in baseline mode.[/yellow]")
+            return
+        if not force:
+            confirm = console.input(
+                "[bold red]Enter baseline mode?[/bold red] This disables all cognitive features. [y/N]: "
+            )
+            if not confirm.lower().startswith("y"):
+                raise typer.Exit(0)
+
+        state.enter_baseline_mode()
+        if clear_state:
+            clear_all_baseline(force=force)
+        if stop_services:
+            _suspend_services(state)
+        audit_log(
+            AuditAction.BASELINE_ENTER,
+            {"clear_state": clear_state, "stop_services": stop_services},
+            source="baseline",
+        )
+        console.print("[bold green]BASELINE MODE ACTIVE[/bold green]")
+        return
+
+    if action == "exit":
+        if not state.baseline_active:
+            console.print("[yellow]Not in baseline mode.[/yellow]")
+            return
+        _resume_services(state)
+        state.exit_baseline_mode(restore=restore_on_exit)
+        audit_log(AuditAction.BASELINE_EXIT, {"restored": restore_on_exit}, source="baseline")
+        console.print("[bold green]BASELINE MODE EXITED[/bold green]")
+        return
+
+    raise typer.BadParameter(f"Unknown action: {action}")
+
+
+def _show_baseline_status(state_obj: object) -> None:
+    toggles = get_toggle_status_table(state_obj)
+    console.print(f"Baseline active: {'yes' if state_obj.baseline_active else 'no'}")
+    for name, value in toggles.items():
+        console.print(f"  {name}: {'on' if value else 'off'}")
+    if state_obj.suspended_services:
+        console.print(f"Suspended services: {', '.join(sorted(state_obj.suspended_services))}")
+
+
+def _suspend_services(state_obj: object) -> None:
+    for service in ("heartbeat", "cron"):
+        state_obj.register_suspended_service(service)
+        audit_log(AuditAction.SERVICE_SUSPEND, {"service": service}, source="baseline")
+
+
+def _resume_services(state_obj: object) -> None:
+    for service in ("heartbeat", "cron"):
+        state_obj.unregister_suspended_service(service)
+        audit_log(AuditAction.SERVICE_RESUME, {"service": service}, source="baseline")
+
+
 # ============================================================================
 # Agent Commands
 # ============================================================================
@@ -1117,6 +1194,8 @@ def status():
 from nanobot.cli.triune_commands import triune_app
 
 app.add_typer(triune_app, name="triune")
+
+app.add_typer(state_app, name="state")
 
 
 if __name__ == "__main__":

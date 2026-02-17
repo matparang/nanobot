@@ -160,3 +160,41 @@ def test_toggle_commands_accept_direct_action_arguments():
             state.mem0_enabled,
             state.heartbeat_enabled,
         ) = previous
+
+
+def test_baseline_command_enter_and_exit():
+    previous = state.get_all_toggles()
+    try:
+        result = runner.invoke(app, ["baseline", "enter", "--force"])
+        assert result.exit_code == 0
+        assert state.baseline_active is True
+        assert all(v is False for v in state.get_all_toggles().values())
+
+        result = runner.invoke(app, ["baseline", "exit"])
+        assert result.exit_code == 0
+        assert state.baseline_active is False
+        assert state.get_all_toggles() == previous
+    finally:
+        if state.baseline_active:
+            state.exit_baseline_mode(restore=False)
+        state.restore_toggles(previous)
+
+
+def test_state_commands_inspect_and_clear(tmp_path):
+    with patch("nanobot.utils.helpers.get_workspace_path") as mock_ws, patch(
+        "nanobot.config.loader.get_data_dir"
+    ) as mock_data_dir:
+        workspace = tmp_path / "workspace"
+        data_dir = tmp_path / "data"
+        (workspace / "memory").mkdir(parents=True)
+        (workspace / "memory" / "ALS.json").write_text("{}", encoding="utf-8")
+        mock_ws.return_value = workspace
+        mock_data_dir.return_value = data_dir
+
+        inspect_result = runner.invoke(app, ["state", "inspect", "als"])
+        assert inspect_result.exit_code == 0
+        assert "ALS" in inspect_result.stdout
+
+        clear_result = runner.invoke(app, ["state", "clear", "als", "--dry-run", "--force"])
+        assert clear_result.exit_code == 0
+        assert "Would clear" in clear_result.stdout

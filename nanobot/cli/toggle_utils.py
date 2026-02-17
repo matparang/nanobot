@@ -5,6 +5,8 @@ from typing import Literal
 
 import click
 
+from nanobot.cli.audit import AuditAction, audit_log
+
 
 def get_toggle_log_path() -> Path:
     log_dir = Path.home() / ".nanobot" / "logs"
@@ -22,6 +24,11 @@ def log_toggle_change(feature: str, old_value: bool, new_value: bool, source: st
     }
     with get_toggle_log_path().open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
+    audit_log(
+        AuditAction.TOGGLE_CHANGE,
+        {"feature": feature, "old_value": old_value, "new_value": new_value},
+        source=source,
+    )
 
 
 def toggle_feature(
@@ -81,3 +88,29 @@ def batch_toggle(
             log_toggle_change(name, old_value, bool(new_value), log_source)
             results[name] = (old_value, bool(new_value))
     return results
+
+
+def baseline_toggle_all(
+    state_obj: object,
+    enable: bool,
+    log_source: str = "baseline",
+) -> dict[str, tuple[bool, bool]]:
+    all_features = {
+        "latent": enable,
+        "mem0": enable,
+        "fractal": enable,
+        "entangled": enable,
+        "triune": enable,
+        "heartbeat": enable,
+    }
+    results = batch_toggle(state_obj, all_features, log_source)
+    audit_log(
+        AuditAction.BASELINE_EXIT if enable else AuditAction.BASELINE_ENTER,
+        {"toggles": {k: v[1] for k, v in results.items()}},
+        source=log_source,
+    )
+    return results
+
+
+def get_toggle_status_table(state_obj: object) -> dict[str, bool]:
+    return state_obj.get_all_toggles()

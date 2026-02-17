@@ -7,6 +7,7 @@ from nanobot.runtime.state import state
 def test_batch_toggle_updates_mapped_toggles_and_logs(tmp_path, monkeypatch):
     log_path = tmp_path / "toggle.log"
     monkeypatch.setattr(toggle_utils, "get_toggle_log_path", lambda: log_path)
+    monkeypatch.setattr(toggle_utils, "audit_log", lambda *args, **kwargs: None)
 
     previous = state.get_all_toggles()
     try:

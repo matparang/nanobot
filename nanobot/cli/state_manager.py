@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from rich.console import Console
 
+from nanobot.cli.audit import AuditAction, audit_log
+
 console = Console()
 
 
@@ -66,20 +68,32 @@ def get_persistent_files() -> list[PersistentFile]:
         ),
         PersistentFile("cron_jobs", data_dir / "cron" / "jobs.json", "json", "Scheduled cron jobs"),
         PersistentFile("HEARTBEAT", workspace / "HEARTBEAT.md", "md", "Heartbeat task list"),
+        PersistentFile(
+            "triune_checksums",
+            workspace / ".triune" / "checksums.json",
+            "json",
+            "Triune sync checksums",
+        ),
+        PersistentFile("soul_config", workspace / "SOUL.md", "md", "Soul configuration"),
     ]
+
+
+_CATEGORY_MAPPING = {
+    "als": ["ALS"],
+    "memory": ["MEMORY.md", "MEMORY.yaml", "HISTORY.md", "fractal_index", "archives"],
+    "sessions": ["sessions"],
+    "cron": ["cron_jobs"],
+    "heartbeat": ["HEARTBEAT"],
+    "triune": ["triune_checksums"],
+    "soul": ["soul_config"],
+    "all": None,
+}
 
 
 def check_persistent_state(category: str | None = None) -> dict[str, dict[str, Any]]:
     files = get_persistent_files()
-    category_mapping = {
-        "als": ["ALS"],
-        "memory": ["MEMORY.md", "MEMORY.yaml", "HISTORY.md", "fractal_index", "archives"],
-        "sessions": ["sessions"],
-        "cron": ["cron_jobs"],
-        "heartbeat": ["HEARTBEAT"],
-    }
-    if category:
-        files = [f for f in files if f.name in category_mapping.get(category, [])]
+    if category and category != "all":
+        files = [f for f in files if f.name in _CATEGORY_MAPPING.get(category, [])]
 
     results = {}
     for pf in files:
@@ -132,6 +146,17 @@ def clear_persistent_state(
         results["jobs.json"] = _clear_file(data_dir / "cron" / "jobs.json", dry_run, force)
     elif category == "heartbeat":
         results["HEARTBEAT.md"] = _reset_heartbeat(workspace / "HEARTBEAT.md", dry_run, force)
+    elif category == "triune":
+        results["checksums.json"] = _clear_file(
+            workspace / ".triune" / "checksums.json", dry_run, force
+        )
+    elif category == "soul":
+        results["SOUL.md"] = _clear_file(workspace / "SOUL.md", dry_run, force)
+    audit_log(
+        AuditAction.STATE_CLEAR,
+        {"category": category, "dry_run": dry_run, "results": results},
+        source="state_manager",
+    )
     return results
 
 
@@ -214,6 +239,7 @@ def reload_persistent_state(category: str) -> bool:
         als_file.parent.mkdir(parents=True, exist_ok=True)
         if not als_file.exists():
             als_file.write_text(ActiveLearningState().model_dump_json(indent=2), encoding="utf-8")
+        audit_log(AuditAction.STATE_RELOAD, {"category": category}, source="state_manager")
         return True
 
     if category == "memory":
@@ -226,6 +252,29 @@ def reload_persistent_state(category: str) -> bool:
         memory_file = memory_dir / "MEMORY.md"
         if not memory_file.exists():
             memory_file.write_text("# Long-term Memory\n\n", encoding="utf-8")
+        audit_log(AuditAction.STATE_RELOAD, {"category": category}, source="state_manager")
+        return True
+
+    if category == "triune":
+        checksums_file = workspace / ".triune" / "checksums.json"
+        checksums_file.parent.mkdir(parents=True, exist_ok=True)
+        if not checksums_file.exists():
+            checksums_file.write_text("{}", encoding="utf-8")
+        audit_log(AuditAction.STATE_RELOAD, {"category": category}, source="state_manager")
         return True
 
     return False
+
+
+def clear_all_baseline(
+    dry_run: bool = False, force: bool = False
+) -> dict[str, dict[str, bool]]:
+    results = {}
+    for category in ("als", "memory", "sessions", "cron", "heartbeat", "triune"):
+        results[category] = clear_persistent_state(category, dry_run=dry_run, force=force)
+    audit_log(
+        AuditAction.STATE_CLEAR,
+        {"categories": list(results.keys()), "dry_run": dry_run},
+        source="baseline",
+    )
+    return results

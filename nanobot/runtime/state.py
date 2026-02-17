@@ -17,6 +17,9 @@ class RuntimeState:
                 cls._instance._entangled_memory_enabled = False
                 cls._instance._triune_memory_enabled = True
                 cls._instance._heartbeat_enabled = True
+                cls._instance._baseline_active = False
+                cls._instance._pre_baseline_state = None
+                cls._instance._suspended_services = set()
         return cls._instance
 
     @property
@@ -108,6 +111,61 @@ class RuntimeState:
             self._triune_memory_enabled = False
             self._heartbeat_enabled = False
             return previous
+
+    @property
+    def baseline_active(self) -> bool:
+        with self._lock:
+            return self._baseline_active
+
+    @property
+    def suspended_services(self) -> set[str]:
+        with self._lock:
+            return set(self._suspended_services)
+
+    def enter_baseline_mode(self) -> dict[str, bool]:
+        with self._lock:
+            if self._baseline_active:
+                raise RuntimeError("Already in baseline mode")
+            self._pre_baseline_state = {
+                "latent_reasoning": self._latent_reasoning_enabled,
+                "mem0": self._mem0_enabled,
+                "fractal_memory": self._fractal_memory_enabled,
+                "entangled_memory": self._entangled_memory_enabled,
+                "triune_memory": self._triune_memory_enabled,
+                "heartbeat": self._heartbeat_enabled,
+            }
+            self._latent_reasoning_enabled = False
+            self._mem0_enabled = False
+            self._fractal_memory_enabled = False
+            self._entangled_memory_enabled = False
+            self._triune_memory_enabled = False
+            self._heartbeat_enabled = False
+            self._baseline_active = True
+            return dict(self._pre_baseline_state)
+
+    def exit_baseline_mode(self, restore: bool = True) -> None:
+        with self._lock:
+            if not self._baseline_active:
+                raise RuntimeError("Not in baseline mode")
+            previous = self._pre_baseline_state
+            self._baseline_active = False
+            self._pre_baseline_state = None
+            self._suspended_services.clear()
+            if restore and previous:
+                self._latent_reasoning_enabled = bool(previous.get("latent_reasoning", False))
+                self._mem0_enabled = bool(previous.get("mem0", False))
+                self._fractal_memory_enabled = bool(previous.get("fractal_memory", False))
+                self._entangled_memory_enabled = bool(previous.get("entangled_memory", False))
+                self._triune_memory_enabled = bool(previous.get("triune_memory", True))
+                self._heartbeat_enabled = bool(previous.get("heartbeat", True))
+
+    def register_suspended_service(self, name: str) -> None:
+        with self._lock:
+            self._suspended_services.add(name)
+
+    def unregister_suspended_service(self, name: str) -> None:
+        with self._lock:
+            self._suspended_services.discard(name)
 
     def restore_toggles(self, states: dict[str, bool]) -> None:
         with self._lock:
