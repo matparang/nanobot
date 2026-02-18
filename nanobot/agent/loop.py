@@ -131,6 +131,28 @@ class AgentLoop:
         self._auto_consolidate_enabled = bool(self.memory_config.get("auto_consolidate_enabled", True))
         self._auto_consolidate_event_threshold = int(self.memory_config.get("auto_consolidate_event_threshold", 40))
 
+        # Wire memory-aware reasoning if episodic memory is enabled
+        if self._episodic_enabled:
+            try:
+                from nanobot.memory.memory_aware_reasoner import wrap_latent_reasoner_with_memory
+                
+                self.latent_engine = wrap_latent_reasoner_with_memory(
+                    self.latent_engine,
+                    workspace=self.workspace,
+                    memory_config=self.memory_config,
+                )
+                
+                # Also wrap the dual reasoner's latent reasoner
+                self.dual_reasoner.latent_reasoner = wrap_latent_reasoner_with_memory(
+                    self.dual_reasoner.latent_reasoner,
+                    workspace=self.workspace,
+                    memory_config=self.memory_config,
+                )
+                
+                logger.info("Memory-aware reasoning enabled (LatentReasoner wrapped with HypothesisEngine)")
+            except Exception as e:
+                logger.warning(f"Failed to enable memory-aware reasoning (non-fatal): {e}")
+
         self._running = False
         # consolidation_queue_size bounds background memory-consolidation backlog.
         self._consolidation_queue: asyncio.Queue[str | Session] = asyncio.Queue(
@@ -349,6 +371,24 @@ class AgentLoop:
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         )
+        
+        # Eager relation extraction from user message
+        if self._episodic_enabled:
+            try:
+                from nanobot.memory.relation_extractor import RelationExtractionEngine
+                
+                extractor = RelationExtractionEngine()
+                extracted_count = extractor.extract_and_ingest(
+                    text=msg.content,
+                    cache=self.consolidation_pipeline.relational_cache,
+                    session_store=self.episodic_store,
+                    session_id=episodic_session_id,
+                )
+                if extracted_count > 0:
+                    logger.info(f"Eager relation extraction: {extracted_count} relations from user message")
+            except Exception as e:
+                logger.warning(f"Eager relation extraction failed (non-fatal): {e}")
+        
         return outbound
 
     async def _process_message(self, msg: InboundMessage, session_key: str | None = None) -> OutboundMessage | None:
