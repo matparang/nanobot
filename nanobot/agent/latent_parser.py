@@ -19,9 +19,12 @@ class ProviderOutputNormalizer:
     """Normalizes raw LLM provider outputs into consistent SuperpositionalState format."""
 
     # Alternative key mappings for hypothesis fields
-    INTENT_KEYS = ["intent", "hypothesis", "description", "interpretation"]
-    CONFIDENCE_KEYS = ["confidence", "probability", "confidence_score", "score"]
-    REASONING_KEYS = ["reasoning", "rationale", "explanation", "justification"]
+    INTENT_KEYS = ["intent", "hypothesis", "description", "interpretation",
+                   "goal", "task", "action", "intent_type", "purpose", "objective"]
+    CONFIDENCE_KEYS = ["confidence", "probability", "confidence_score", "score",
+                       "certainty", "likelihood", "conf"]
+    REASONING_KEYS = ["reasoning", "rationale", "explanation", "justification",
+                      "reason", "analysis", "thought", "logic"]
     ENTROPY_KEYS = ["entropy", "ambiguity", "uncertainty"]
     STRATEGIC_KEYS = ["strategic_direction", "strategicDirection", "strategy", "direction"]
 

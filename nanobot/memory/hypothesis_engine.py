@@ -27,15 +27,17 @@ class HypothesisEngine:
         entropy_threshold: Threshold for LLM invocation (default: 0.8)
     """
 
-    def __init__(self, workspace: Path, entropy_threshold: float = 0.8):
+    def __init__(self, workspace: Path, entropy_threshold: float = 0.8, trait_scorer=None):
         """Initialize hypothesis engine.
 
         Args:
             workspace: Path to workspace directory
             entropy_threshold: Entropy threshold above which LLM is invoked
+            trait_scorer: Optional TraitScorer for Heart signal integration
         """
         self.cache = RelationalCache(workspace)
         self.entropy_threshold = entropy_threshold
+        self.trait_scorer = trait_scorer
 
     def generate_hypotheses(
         self,
@@ -57,7 +59,13 @@ class HypothesisEngine:
         parsed = self._parse_query(query)
 
         # Generate hypotheses based on query type
-        if parsed["type"] == "comparison":
+        if parsed["type"] == "superlative":
+            hypotheses = self._generate_superlative_hypotheses(
+                parsed["qualifier"],
+                parsed["relation_type"],
+                max_hypotheses
+            )
+        elif parsed["type"] == "comparison":
             hypotheses = self._generate_comparison_hypotheses(
                 parsed["entities"],
                 parsed["attribute"],
@@ -108,6 +116,32 @@ class HypothesisEngine:
         query_lower = query.lower()
         entities = self.cache.get_entities()
         entity_names = list(entities.keys())
+
+        # Check for superlative queries FIRST (who is tallest/shortest, etc.)
+        superlative_patterns = [
+            (r"who is (?:the\s+)?(tallest|shortest)", ("tallest", "taller_than"), ("shortest", "shorter_than")),
+            (r"who is (?:the\s+)?(biggest|smallest)", ("biggest", "bigger_than"), ("smallest", "smaller_than")),
+            (r"who is (?:the\s+)?(fastest|slowest)", ("fastest", "faster_than"), ("slowest", "slower_than")),
+            (r"who is (?:the\s+)?(oldest|youngest)", ("oldest", "older_than"), ("youngest", "younger_than")),
+            (r"who is (?:the\s+)?(strongest|weakest)", ("strongest", "stronger_than"), ("weakest", "weaker_than")),
+            (r"who is (?:the\s+)?(heaviest|lightest)", ("heaviest", "heavier_than"), ("lightest", "lighter_than")),
+            (r"which is (?:the\s+)?(tallest|shortest)", ("tallest", "taller_than"), ("shortest", "shorter_than")),
+            (r"which is (?:the\s+)?(biggest|smallest)", ("biggest", "bigger_than"), ("smallest", "smaller_than")),
+            (r"which is (?:the\s+)?(fastest|slowest)", ("fastest", "faster_than"), ("slowest", "slower_than")),
+        ]
+
+        for pattern, *mapping_pairs in superlative_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                qualifier = match.group(1)
+                # Map qualifier to relation_type
+                for qual, rel_type in mapping_pairs:
+                    if qualifier == qual:
+                        return {
+                            "type": "superlative",
+                            "qualifier": qualifier,
+                            "relation_type": rel_type
+                        }
 
         # Check for comparison queries (who is taller/shorter, etc.)
         comparison_patterns = [
@@ -257,6 +291,139 @@ class HypothesisEngine:
                             "relationship": rel
                         }
                     })
+
+        return hypotheses[:max_hypotheses]
+
+    def _generate_superlative_hypotheses(
+        self,
+        qualifier: str,
+        relation_type: str,
+        max_hypotheses: int
+    ) -> list[dict[str, Any]]:
+        """Generate hypotheses for superlative queries using graph topological sort.
+
+        Args:
+            qualifier: Superlative qualifier (e.g., 'tallest', 'shortest')
+            relation_type: Relation type to use for ranking (e.g., 'taller_than')
+            max_hypotheses: Maximum number of hypotheses
+
+        Returns:
+            List of hypothesis dictionaries
+        """
+        from loguru import logger
+
+        hypotheses = []
+
+        # Get all relationships of the relevant type
+        all_relationships = self._get_all_relationships()
+        relevant_rels = [
+            r for r in all_relationships
+            if r.get("type") == relation_type
+        ]
+
+        if not relevant_rels:
+            # No data available for this type
+            return hypotheses
+
+        # Build directed graph (adjacency list)
+        # For "A taller_than B", edge is A -> B
+        graph = {}
+        in_degree = {}
+        all_entities = set()
+
+        for rel in relevant_rels:
+            source = rel["source"]
+            target = rel["target"]
+            all_entities.add(source)
+            all_entities.add(target)
+
+            if source not in graph:
+                graph[source] = []
+            graph[source].append(target)
+
+            if source not in in_degree:
+                in_degree[source] = 0
+            if target not in in_degree:
+                in_degree[target] = 0
+            in_degree[target] += 1
+
+        # Check for cycles using the cache's detect_cycles method
+        has_cycles = self.cache.detect_cycles(relation_type)
+
+        if has_cycles:
+            # Inconsistent data - need LLM
+            logger.warning(f"Cycle detected in {relation_type} relationships - returning high entropy")
+            hypotheses.append({
+                "intent": f"detect_cycle_{qualifier}",
+                "confidence": 0.3,
+                "reasoning": f"Inconsistent data: cycle detected in {relation_type} relationships",
+                "result": f"Cannot determine {qualifier} due to contradictory relationships",
+                "evidence": {
+                    "type": "cycle_detected",
+                    "relation_type": relation_type
+                }
+            })
+            return hypotheses
+
+        # Determine the answer based on qualifier type
+        # "tallest" type qualifiers → entity with no incoming edges (source of all chains)
+        # "shortest" type qualifiers → entity with no outgoing edges (sink of all chains)
+        is_maximum = qualifier in ["tallest", "biggest", "fastest", "oldest", "strongest", "heaviest"]
+
+        if is_maximum:
+            # Find entities with no incoming edges (top of the chain)
+            candidates = [e for e in all_entities if in_degree[e] == 0]
+        else:
+            # Find entities with no outgoing edges (bottom of the chain)
+            candidates = [e for e in all_entities if e not in graph or len(graph[e]) == 0]
+
+        if not candidates:
+            # No clear answer
+            hypotheses.append({
+                "intent": f"incomplete_graph_{qualifier}",
+                "confidence": 0.4,
+                "reasoning": f"Incomplete relationship graph for {relation_type}",
+                "result": f"Insufficient data to determine {qualifier}",
+                "evidence": {
+                    "type": "incomplete_graph",
+                    "relation_type": relation_type,
+                    "entity_count": len(all_entities)
+                }
+            })
+            return hypotheses
+
+        # If multiple candidates, we have ambiguity
+        if len(candidates) > 1:
+            # Create hypothesis for each candidate with lower confidence
+            for candidate in candidates[:max_hypotheses]:
+                hypotheses.append({
+                    "intent": f"superlative_{qualifier}",
+                    "confidence": 0.7 / len(candidates),
+                    "reasoning": f"Multiple possible answers for {qualifier}: {', '.join(candidates)}",
+                    "result": f"{candidate} is {qualifier}",
+                    "evidence": {
+                        "type": "superlative_ambiguous",
+                        "qualifier": qualifier,
+                        "relation_type": relation_type,
+                        "candidates": candidates
+                    }
+                })
+        else:
+            # Single clear answer
+            answer_entity = candidates[0]
+            hypotheses.append({
+                "intent": f"superlative_{qualifier}",
+                "confidence": 0.95,
+                "reasoning": f"Graph analysis shows {answer_entity} is {qualifier} based on {relation_type} relationships",
+                "result": f"{answer_entity} is {qualifier}",
+                "evidence": {
+                    "type": "superlative_clear",
+                    "qualifier": qualifier,
+                    "relation_type": relation_type,
+                    "answer": answer_entity,
+                    "relationship_count": len(relevant_rels)
+                }
+            })
 
         return hypotheses[:max_hypotheses]
 
