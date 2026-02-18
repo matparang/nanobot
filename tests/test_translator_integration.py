@@ -234,7 +234,7 @@ class TestFullAgentLoopWithYaml:
             )
 
             # Sync to YAML
-            result = sync_all(workspace, direction="md_to_yaml", quiet=True)
+            sync_all(workspace, direction="md_to_yaml", quiet=True)
 
             # Verify YAML files created
             assert (workspace / "AGENTS.yaml").exists()
@@ -363,10 +363,8 @@ Section B content.
             assert "sections" in data
 
             # Should have nested structure
-            found_subsection = False
             for section in data["sections"]:
                 if section.get("subsections"):
-                    found_subsection = True
                     break
 
             # Either has nested subsections or flat sections (both valid)

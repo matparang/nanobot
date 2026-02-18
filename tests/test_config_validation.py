@@ -76,7 +76,7 @@ def test_example_config_validates():
 
     # Verify core config is configured as expected (no deprecated fields)
     # Note: memory, translator, telemetry have been moved to extensions.json
-    
+
     # Verify providers are set up
     assert config.providers.openai.api_key != ""
     assert config.providers.gemini.api_key != ""
@@ -135,15 +135,15 @@ def test_old_config_with_deprecated_fields_migrates():
         config_path = Path(tmpdir) / "config.json"
         with open(config_path, "w") as f:
             json.dump(old_config_data, f)
-        
+
         # Load config with auto-migration enabled
         from nanobot.config.loader import load_config
         config = load_config(config_path, auto_migrate=True)
-        
+
         # Verify core config is valid (memory field has been migrated)
         assert config.agents.defaults.model == "gpt-4"
         assert config.providers.openai.api_key == "test-key"
-        
+
         # Verify extensions file was created
         ext_path = config_path.parent / "extensions.json"
         assert ext_path.exists()
@@ -160,28 +160,28 @@ def test_extensions_example_validates():
     # Verify it has the expected structure
     assert "extensions" in data
     ext = data["extensions"]
-    
+
     # Verify all expected extension sections exist
     assert "memory" in ext
     assert "translator" in ext
     assert "telemetry" in ext
     assert "rate_limit" in ext
     assert "custom" in ext
-    
+
     # Verify memory extension has expected fields
     assert ext["memory"]["enabled"] is True
     assert ext["memory"]["provider"] == "local"
     assert ext["memory"]["topK"] == 5
-    
+
     # Verify telemetry extension
     assert ext["telemetry"]["enabled"] is True
     assert ext["telemetry"]["port"] == 9090
-    
+
     # Verify rate_limit extension
     assert ext["rate_limit"]["enabled"] is True
     assert ext["rate_limit"]["max_calls"] == 10
     assert ext["rate_limit"]["window_seconds"] == 60
-    
+
     # Verify custom extension
     assert ext["custom"]["enable_quantum_latent"] is True
     assert ext["custom"]["use_keyring"] is True

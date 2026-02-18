@@ -8,9 +8,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.latent import LatentReasoner
+from nanobot.agent.loop import AgentLoop
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.memory_types import FractalNode, SuperpositionalState
 from nanobot.bus.events import InboundMessage
@@ -225,7 +225,7 @@ async def test_latent_reasoning_pipeline():
     original_latent = state.latent_reasoning_enabled
     try:
         state.latent_reasoning_enabled = True
-        
+
         mock_provider = AsyncMock()
         mock_provider.chat.return_value = LLMResponse(
             content='{"hypotheses":[{"intent":"search","confidence":0.9,"reasoning":"direct lookup"}]}'
@@ -251,7 +251,7 @@ async def test_latent_reasoning_retries_transient_errors():
     original_latent = state.latent_reasoning_enabled
     try:
         state.latent_reasoning_enabled = True
-        
+
         mock_provider = AsyncMock()
         mock_provider.chat.side_effect = [
             ConnectionError("transient failure"),
@@ -273,7 +273,7 @@ async def test_latent_reasoning_iterative_beam_pruning():
     original_latent = state.latent_reasoning_enabled
     try:
         state.latent_reasoning_enabled = True
-        
+
         provider = AsyncMock()
         provider.chat.return_value = LLMResponse(
             content='{"hypotheses":[{"intent":"a","confidence":0.5,"reasoning":"a"},{"intent":"b","confidence":0.5,"reasoning":"b"}]}'
@@ -332,7 +332,7 @@ async def test_latent_retry_attempts_are_configurable():
     original_latent = state.latent_reasoning_enabled
     try:
         state.latent_reasoning_enabled = True
-        
+
         provider = AsyncMock()
         provider.chat.side_effect = ConnectionError("always fails")
         reasoner = LatentReasoner(

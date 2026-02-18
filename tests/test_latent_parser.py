@@ -52,7 +52,7 @@ class TestProviderOutputNormalizer:
             "reasoning": "test reasoning"
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is not None
         assert result["intent"] == "test intent"
         assert result["confidence"] == 0.8
@@ -67,7 +67,7 @@ class TestProviderOutputNormalizer:
             "rationale": "test rationale"
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is not None
         assert result["intent"] == "test hypothesis"
         assert result["confidence"] == 0.7
@@ -81,7 +81,7 @@ class TestProviderOutputNormalizer:
             "explanation": "based on context"
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is not None
         assert result["intent"] == "user wants help"
         assert result["confidence"] == 0.9
@@ -94,7 +94,7 @@ class TestProviderOutputNormalizer:
             "reasoning": "test"
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is not None
         assert result["confidence"] == 0.5
 
@@ -105,7 +105,7 @@ class TestProviderOutputNormalizer:
             "confidence": 0.8
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is not None
         assert result["reasoning"] == "latent inference"
 
@@ -116,7 +116,7 @@ class TestProviderOutputNormalizer:
             "reasoning": "test"
         }
         result = ProviderOutputNormalizer.normalize_hypothesis(hyp)
-        
+
         assert result is None
 
     def test_normalize_hypothesis_confidence_bounds(self):
@@ -124,7 +124,7 @@ class TestProviderOutputNormalizer:
         hyp1 = {"intent": "test", "confidence": 1.5}
         result1 = ProviderOutputNormalizer.normalize_hypothesis(hyp1)
         assert result1["confidence"] == 1.0
-        
+
         hyp2 = {"intent": "test", "confidence": -0.5}
         result2 = ProviderOutputNormalizer.normalize_hypothesis(hyp2)
         assert result2["confidence"] == 0.0
@@ -140,7 +140,7 @@ class TestProviderOutputNormalizer:
             "strategic_direction": "proceed"
         }
         result = ProviderOutputNormalizer.normalize_superpositional_state(state)
-        
+
         assert len(result["hypotheses"]) == 2
         assert result["entropy"] == 0.5
         assert result["strategic_direction"] == "proceed"
@@ -155,7 +155,7 @@ class TestProviderOutputNormalizer:
             "strategicDirection": "clarify"
         }
         result = ProviderOutputNormalizer.normalize_superpositional_state(state)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["hypotheses"][0]["intent"] == "h1"
         assert result["entropy"] == 0.7
@@ -169,7 +169,7 @@ class TestProviderOutputNormalizer:
             "reasoning": "only one option"
         }
         result = ProviderOutputNormalizer.normalize_superpositional_state(state)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["hypotheses"][0]["intent"] == "single hypothesis"
 
@@ -185,7 +185,7 @@ class TestProviderOutputNormalizer:
 }
 ```'''
         result = ProviderOutputNormalizer.parse_and_normalize(raw)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["hypotheses"][0]["intent"] == "help"
         assert result["entropy"] == 0.3
@@ -194,7 +194,7 @@ class TestProviderOutputNormalizer:
         """Test parsing JSON wrapped in text."""
         raw = 'Here is the analysis: {"hypotheses": [{"intent": "test", "confidence": 0.7, "reasoning": "r"}], "entropy": 0.4, "strategic_direction": "go"} end'
         result = ProviderOutputNormalizer.parse_and_normalize(raw)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["entropy"] == 0.4
 
@@ -211,7 +211,7 @@ class TestProviderOutputNormalizer:
     def test_parse_and_normalize_safe_fallback(self):
         """Test safe version returns fallback on error."""
         result = ProviderOutputNormalizer.parse_and_normalize_safe("")
-        
+
         assert result["hypotheses"] == []
         assert result["entropy"] == 0.0
         assert "parsing error" in result["strategic_direction"]
@@ -219,7 +219,7 @@ class TestProviderOutputNormalizer:
     def test_parse_and_normalize_safe_handles_malformed(self):
         """Test safe version handles malformed JSON gracefully."""
         result = ProviderOutputNormalizer.parse_and_normalize_safe("{{invalid")
-        
+
         assert result["hypotheses"] == []
         assert result["entropy"] == 0.0
 
@@ -243,7 +243,7 @@ class TestProviderOutputNormalizer:
 
 Hope this helps!'''
         result = ProviderOutputNormalizer.parse_and_normalize(raw)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["hypotheses"][0]["intent"] == "User wants to create a file"
         assert abs(result["hypotheses"][0]["confidence"] - 0.85) < 0.01
@@ -268,7 +268,7 @@ Hope this helps!'''
   "strategic_direction": "Execute search with clarification prompt"
 }'''
         result = ProviderOutputNormalizer.parse_and_normalize(raw)
-        
+
         assert len(result["hypotheses"]) == 2
         assert result["hypotheses"][0]["intent"] == "search for information"
         assert result["entropy"] == 0.6
@@ -287,7 +287,7 @@ Hope this helps!'''
 
 This is my analysis.'''
         result = ProviderOutputNormalizer.parse_and_normalize(raw)
-        
+
         assert len(result["hypotheses"]) == 1
         assert result["hypotheses"][0]["intent"] == "code generation"
         assert result["entropy"] == 0.1

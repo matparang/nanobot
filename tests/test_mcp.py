@@ -148,7 +148,7 @@ mcp_servers:
     args: ["-m", "module1"]
     env:
       KEY1: value1
-  
+
   - name: server2
     command: node
     type: local
