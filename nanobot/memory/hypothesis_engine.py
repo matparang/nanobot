@@ -27,15 +27,17 @@ class HypothesisEngine:
         entropy_threshold: Threshold for LLM invocation (default: 0.8)
     """
 
-    def __init__(self, workspace: Path, entropy_threshold: float = 0.8):
+    def __init__(self, workspace: Path, entropy_threshold: float = 0.8, trait_scorer=None):
         """Initialize hypothesis engine.
 
         Args:
             workspace: Path to workspace directory
             entropy_threshold: Entropy threshold above which LLM is invoked
+            trait_scorer: Optional TraitScorer for Heart signal integration
         """
         self.cache = RelationalCache(workspace)
         self.entropy_threshold = entropy_threshold
+        self.trait_scorer = trait_scorer
 
     def generate_hypotheses(
         self,
@@ -57,7 +59,13 @@ class HypothesisEngine:
         parsed = self._parse_query(query)
 
         # Generate hypotheses based on query type
-        if parsed["type"] == "comparison":
+        if parsed["type"] == "superlative":
+            hypotheses = self._generate_superlative_hypotheses(
+                parsed["qualifier"],
+                parsed["relation_type"],
+                max_hypotheses
+            )
+        elif parsed["type"] == "comparison":
             hypotheses = self._generate_comparison_hypotheses(
                 parsed["entities"],
                 parsed["attribute"],
@@ -108,6 +116,30 @@ class HypothesisEngine:
         query_lower = query.lower()
         entities = self.cache.get_entities()
         entity_names = list(entities.keys())
+
+        # Check for superlative queries FIRST (who is tallest/shortest, etc.)
+        # Map both max and min forms to the same relation type (the "greater" form)
+        superlative_patterns = [
+            (r"who is (?:the\s+)?(tallest|shortest)", "taller_than"),
+            (r"who is (?:the\s+)?(biggest|smallest)", "bigger_than"),
+            (r"who is (?:the\s+)?(fastest|slowest)", "faster_than"),
+            (r"who is (?:the\s+)?(oldest|youngest)", "older_than"),
+            (r"who is (?:the\s+)?(strongest|weakest)", "stronger_than"),
+            (r"who is (?:the\s+)?(heaviest|lightest)", "heavier_than"),
+            (r"which is (?:the\s+)?(tallest|shortest)", "taller_than"),
+            (r"which is (?:the\s+)?(biggest|smallest)", "bigger_than"),
+            (r"which is (?:the\s+)?(fastest|slowest)", "faster_than"),
+        ]
+
+        for pattern, rel_type in superlative_patterns:
+            match = re.search(pattern, query_lower)
+            if match:
+                qualifier = match.group(1)
+                return {
+                    "type": "superlative",
+                    "qualifier": qualifier,
+                    "relation_type": rel_type
+                }
 
         # Check for comparison queries (who is taller/shorter, etc.)
         comparison_patterns = [
@@ -244,19 +276,161 @@ class HypothesisEngine:
                 })
         else:
             # Try to infer from relationships
-            relationships = self.cache.get_entity_relationships(entities[0])
-            for rel in relationships:
-                if rel["target"] in entities and attribute in rel["type"]:
-                    hypotheses.append({
-                        "intent": f"infer_comparison_{attribute}",
-                        "confidence": 0.7,  # Lower confidence from inference
-                        "reasoning": f"Inferred from relationship: {rel['type']}",
-                        "result": f"Relationship suggests comparison based on {attribute}",
-                        "evidence": {
-                            "type": "relationship_inference",
-                            "relationship": rel
-                        }
-                    })
+            # Check relationships for both entities
+            for entity in entities:
+                relationships = self.cache.get_entity_relationships(entity)
+                for rel in relationships:
+                    # Only consider relationships where this entity is the source
+                    if rel.get("source") != entity:
+                        continue
+                    
+                    # Skip inverse relationships (those created automatically)
+                    if rel.get("properties", {}).get("inverse_of"):
+                        continue
+                    
+                    if rel["target"] in entities:
+                        # Check if this is a relevant comparison relationship
+                        rel_type = rel.get("type", "")
+                        is_relevant = any(
+                            key in rel_type for key in [
+                                "taller", "shorter", "bigger", "smaller", "faster", "slower",
+                                "older", "younger", "heavier", "lighter", "stronger", "weaker"
+                            ]
+                        )
+                        if is_relevant:
+                            hypotheses.append({
+                                "intent": f"infer_comparison_{attribute}",
+                                "confidence": 0.9,  # High confidence from direct relationship
+                                "reasoning": f"Direct relationship found: {rel_type}",
+                                "result": f"{rel['source']} {rel_type.replace('_', ' ')} {rel['target']}",
+                                "evidence": {
+                                    "type": "relationship_comparison",
+                                    "relationship": rel
+                                }
+                            })
+
+        return hypotheses[:max_hypotheses]
+
+    def _generate_superlative_hypotheses(
+        self,
+        qualifier: str,
+        relation_type: str,
+        max_hypotheses: int
+    ) -> list[dict[str, Any]]:
+        """Generate hypotheses for superlative queries using graph topological sort.
+
+        Args:
+            qualifier: Superlative qualifier (e.g., 'tallest', 'shortest')
+            relation_type: Relation type to use for ranking (e.g., 'taller_than')
+            max_hypotheses: Maximum number of hypotheses
+
+        Returns:
+            List of hypothesis dictionaries
+        """
+        from loguru import logger
+
+        hypotheses = []
+
+        # Get all relationships of the relevant type
+        all_relationships = self._get_all_relationships()
+        relevant_rels = [
+            r for r in all_relationships
+            if r.get("type") == relation_type
+        ]
+
+        if not relevant_rels:
+            # No data available for this type
+            return hypotheses
+
+        # Build directed graph (adjacency list)
+        # For "A taller_than B", edge is A -> B
+        graph = {}
+        in_degree = {}
+        all_entities = set()
+
+        for rel in relevant_rels:
+            source = rel["source"]
+            target = rel["target"]
+            all_entities.add(source)
+            all_entities.add(target)
+
+            if source not in graph:
+                graph[source] = []
+            graph[source].append(target)
+
+            if source not in in_degree:
+                in_degree[source] = 0
+            if target not in in_degree:
+                in_degree[target] = 0
+            in_degree[target] += 1
+
+        # Check for cycles using a custom cycle detection for this relation type
+        has_cycles = self._detect_cycles_for_relation_type(relevant_rels)
+
+        if has_cycles:
+            # Inconsistent data - return empty hypotheses which will result in high entropy
+            logger.warning(f"Cycle detected in {relation_type} relationships - returning empty hypotheses")
+            return []
+
+        # Determine the answer based on qualifier type
+        # "tallest" type qualifiers → entity with no incoming edges (source of all chains)
+        # "shortest" type qualifiers → entity with no outgoing edges (sink of all chains)
+        is_maximum = qualifier in ["tallest", "biggest", "fastest", "oldest", "strongest", "heaviest"]
+
+        if is_maximum:
+            # Find entities with no incoming edges (top of the chain)
+            candidates = [e for e in all_entities if in_degree[e] == 0]
+        else:
+            # Find entities with no outgoing edges (bottom of the chain)
+            candidates = [e for e in all_entities if e not in graph or len(graph[e]) == 0]
+
+        if not candidates:
+            # No clear answer
+            hypotheses.append({
+                "intent": f"incomplete_graph_{qualifier}",
+                "confidence": 0.4,
+                "reasoning": f"Incomplete relationship graph for {relation_type}",
+                "result": f"Insufficient data to determine {qualifier}",
+                "evidence": {
+                    "type": "incomplete_graph",
+                    "relation_type": relation_type,
+                    "entity_count": len(all_entities)
+                }
+            })
+            return hypotheses
+
+        # If multiple candidates, we have ambiguity
+        if len(candidates) > 1:
+            # Create hypothesis for each candidate with lower confidence
+            for candidate in candidates[:max_hypotheses]:
+                hypotheses.append({
+                    "intent": f"superlative_{qualifier}",
+                    "confidence": 0.7 / len(candidates),
+                    "reasoning": f"Multiple possible answers for {qualifier}: {', '.join(candidates)}",
+                    "result": f"{candidate} is {qualifier}",
+                    "evidence": {
+                        "type": "superlative_ambiguous",
+                        "qualifier": qualifier,
+                        "relation_type": relation_type,
+                        "candidates": candidates
+                    }
+                })
+        else:
+            # Single clear answer
+            answer_entity = candidates[0]
+            hypotheses.append({
+                "intent": f"superlative_{qualifier}",
+                "confidence": 0.95,
+                "reasoning": f"Graph analysis shows {answer_entity} is {qualifier} based on {relation_type} relationships",
+                "result": f"{answer_entity} is {qualifier}",
+                "evidence": {
+                    "type": "superlative_clear",
+                    "qualifier": qualifier,
+                    "relation_type": relation_type,
+                    "answer": answer_entity,
+                    "relationship_count": len(relevant_rels)
+                }
+            })
 
         return hypotheses[:max_hypotheses]
 
@@ -462,6 +636,54 @@ class HypothesisEngine:
                         visited.add(next_entity)
 
         return paths
+
+    def _detect_cycles_for_relation_type(self, relationships: list[dict[str, Any]]) -> bool:
+        """Detect if there are cycles in a specific set of relationships.
+
+        Args:
+            relationships: List of relationship dictionaries
+
+        Returns:
+            True if cycles are detected, False otherwise
+        """
+        if not relationships:
+            return False
+
+        # Build adjacency list from the given relationships
+        graph = {}
+        for rel in relationships:
+            source = rel["source"]
+            target = rel["target"]
+            if source not in graph:
+                graph[source] = []
+            graph[source].append(target)
+
+        # DFS-based cycle detection
+        visited = set()
+        rec_stack = set()
+
+        def has_cycle_dfs(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+
+            for neighbor in graph.get(node, []):
+                if neighbor not in visited:
+                    if has_cycle_dfs(neighbor):
+                        return True
+                elif neighbor in rec_stack:
+                    # Found a cycle
+                    return True
+
+            rec_stack.remove(node)
+            return False
+
+        # Check for cycles from each unvisited node
+        for node in graph:
+            if node not in visited:
+                if has_cycle_dfs(node):
+                    return True
+
+        return False
 
     def _compute_entropy(self, hypotheses: list[dict[str, Any]]) -> float:
         """Compute entropy of hypotheses based on confidence distribution.

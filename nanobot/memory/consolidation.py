@@ -132,13 +132,54 @@ class ConsolidationPipeline:
                         value=value
                     )
 
+        # Self-healing: re-extract relations from interaction text
+        relationships_reextracted = 0
+        if extract_entities:
+            try:
+                from nanobot.memory.relation_extractor import RelationExtractionEngine
+                from loguru import logger
+                
+                extractor = RelationExtractionEngine()
+                for event in events:
+                    if event.get("type") == "interaction":
+                        user_msg = event.get("payload", {}).get("user_message", "")
+                        if user_msg:
+                            relations = extractor.extract(user_msg)
+                            for rel in relations:
+                                # Check for duplicates before adding
+                                existing = self.relational_cache.get_entity_relationships(
+                                    rel["source"], relation_type=rel["relation_type"]
+                                )
+                                already_exists = any(
+                                    r.get("target") == rel["target"] for r in existing
+                                )
+                                if not already_exists:
+                                    self.relational_cache.add_relationship(
+                                        source=rel["source"],
+                                        target=rel["target"],
+                                        relation_type=rel["relation_type"],
+                                        properties=rel.get("properties", {})
+                                    )
+                                    relationships_added += 1
+                                    relationships_reextracted += 1
+                
+                if relationships_reextracted > 0:
+                    logger.info(
+                        f"Re-extracted {relationships_reextracted} relationships from "
+                        f"interaction events (self-healing)"
+                    )
+            except Exception as e:
+                from loguru import logger
+                logger.warning(f"Re-extraction from interactions failed (non-fatal): {e}")
+
         # Archive session if requested
         if archive_after:
             self.session_store.archive(session_id)
 
         return {
             "patterns_added": patterns_added,
-            "relationships_added": relationships_added
+            "relationships_added": relationships_added,
+            "relationships_reextracted": relationships_reextracted
         }
 
     def consolidate_patterns_to_fractal(
