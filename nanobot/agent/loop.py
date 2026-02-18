@@ -1,8 +1,10 @@
 """Agent loop: the core processing engine."""
 
 import asyncio
+import hashlib
 import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -36,6 +38,8 @@ from nanobot.telemetry.metrics import (
     memory_retrieval_duration,
     tool_execution_count,
 )
+from nanobot.memory.consolidation import ConsolidationPipeline
+from nanobot.memory.session_store import SessionStore
 
 
 class AgentLoop:
@@ -117,6 +121,15 @@ class AgentLoop:
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
         )
+        self.episodic_store = SessionStore(self.workspace)
+        self.consolidation_pipeline = ConsolidationPipeline(
+            self.workspace,
+            memory_config=self.memory_config,
+        )
+
+        self._episodic_enabled = bool(self.memory_config.get("episodic_enabled", True))
+        self._auto_consolidate_enabled = bool(self.memory_config.get("auto_consolidate_enabled", True))
+        self._auto_consolidate_event_threshold = int(self.memory_config.get("auto_consolidate_event_threshold", 40))
 
         self._running = False
         # consolidation_queue_size bounds background memory-consolidation backlog.
@@ -255,6 +268,58 @@ class AgentLoop:
             self._consolidation_task.cancel()
         logger.info("Agent loop stopping")
 
+    def _get_or_create_episodic_session_id(self, session) -> str:
+        """
+        Deterministic per-session-key episodic session id, stored in Session.metadata.
+        """
+        try:
+            existing = (session.metadata or {}).get("episodic_session_id")
+            if existing:
+                return existing
+
+            digest = hashlib.sha256(session.key.encode("utf-8")).hexdigest()[:12]
+            session_id = f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{digest}"
+
+            session.metadata = session.metadata or {}
+            session.metadata["episodic_session_id"] = session_id
+            self.sessions.save(session)
+
+            self.episodic_store.start(
+                session_id=session_id,
+                metadata={
+                    "session_key": session.key,
+                    "channel": getattr(session, "channel", None),
+                },
+            )
+            return session_id
+        except Exception as e:
+            logger.warning(f"Episodic session id creation failed (non-fatal): {e}")
+            digest = hashlib.sha256(session.key.encode("utf-8")).hexdigest()[:12]
+            return f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}_{digest}"
+
+    def _append_episodic_event(self, session_id: str, event_type: str, payload: dict[str, Any]) -> None:
+        if not self._episodic_enabled:
+            return
+        try:
+            self.episodic_store.append_event(session_id=session_id, event_type=event_type, payload=payload)
+        except Exception as e:
+            logger.warning(f"Episodic append_event failed (non-fatal): {e}")
+
+    def _maybe_enqueue_consolidation(self, session_id: str) -> None:
+        if not self._auto_consolidate_enabled:
+            return
+        try:
+            session_data = self.episodic_store.load(session_id)
+            event_count = len(session_data.get("events", []))
+            if event_count < self._auto_consolidate_event_threshold:
+                return
+            try:
+                self._consolidation_queue.put_nowait(session_id)
+            except asyncio.QueueFull:
+                logger.warning("Consolidation queue full; skipping auto-enqueue (non-fatal)")
+        except Exception as e:
+            logger.warning(f"Auto consolidation enqueue failed (non-fatal): {e}")
+
     async def _process_message(self, msg: InboundMessage, session_key: str | None = None) -> OutboundMessage | None:
         """
         Process a single inbound message.
@@ -285,10 +350,20 @@ class AgentLoop:
         # Get or create session
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
+        episodic_session_id = self._get_or_create_episodic_session_id(session)
 
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
+            try:
+                if self._auto_consolidate_enabled:
+                    self.consolidation_pipeline.run_full_pipeline(
+                        session_ids=[episodic_session_id],
+                        archive_sessions=True,
+                    )
+            except Exception as e:
+                logger.warning(f"Episodic consolidation on /new failed (non-fatal): {e}")
+
             await self._consolidate_memory(session, archive_all=True)
             session.clear()
             self.sessions.save(session)
@@ -320,6 +395,19 @@ class AgentLoop:
         cron_tool = self.tools.get("cron")
         if isinstance(cron_tool, CronTool):
             cron_tool.set_context(msg.channel, msg.chat_id)
+
+        self._append_episodic_event(
+            session_id=episodic_session_id,
+            event_type="interaction",
+            payload={
+                "user_message": msg.content,
+                "agent_response": "",
+                "channel": msg.channel,
+                "chat_id": msg.chat_id,
+                "session_key": key,
+                "metadata": msg.metadata or {},
+            },
+        )
 
         retrieval_start = time.time()
         latent_nodes = self.context.memory.get_entangled_context(msg.content, top_k=self.max_context_nodes)
@@ -389,7 +477,7 @@ class AgentLoop:
             else:
                 opt1 = "continue with your current request"
                 opt2 = "provide a bit more detail"
-            return OutboundMessage(
+            outbound = OutboundMessage(
                 channel=msg.channel,
                 chat_id=msg.chat_id,
                 content=(
@@ -398,6 +486,18 @@ class AgentLoop:
                 ),
                 metadata=msg.metadata or {},
             )
+            self._append_episodic_event(
+                session_id=episodic_session_id,
+                event_type="interaction",
+                payload={
+                    "user_message": msg.content,
+                    "agent_response": outbound.content or "",
+                    "tools_used": [],
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                },
+            )
+            self._maybe_enqueue_consolidation(episodic_session_id)
+            return outbound
 
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
@@ -486,12 +586,60 @@ class AgentLoop:
         # Trigger reflection if significant tools were used or task completed
         await self._trigger_reflection(msg.content, final_content, tools_used)
 
-        return OutboundMessage(
+        outbound = OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
             content=final_content,
             metadata=msg.metadata or {},  # Pass through for channel-specific needs (e.g. Slack thread_ts)
         )
+
+        self._append_episodic_event(
+            session_id=episodic_session_id,
+            event_type="interaction",
+            payload={
+                "user_message": msg.content,
+                "agent_response": outbound.content or "",
+                "tools_used": tools_used,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+        try:
+            hypotheses_payload = []
+            if latent_state and getattr(latent_state, "hypotheses", None):
+                for h in getattr(latent_state, "hypotheses", []):
+                    if hasattr(h, "model_dump"):
+                        hypotheses_payload.append(h.model_dump())
+                    elif hasattr(h, "dict"):
+                        hypotheses_payload.append(h.dict())
+                    else:
+                        hypotheses_payload.append(str(h))
+            metadata = outbound.metadata or {}
+            entropy = getattr(latent_state, "entropy", None) if latent_state else metadata.get("entropy")
+            strategic_direction = (
+                getattr(latent_state, "strategic_direction", "")
+                if latent_state
+                else metadata.get("strategic_direction", "")
+            )
+            if not hypotheses_payload and "hypotheses" in metadata:
+                hypotheses_payload = metadata.get("hypotheses", [])
+            if hypotheses_payload or entropy is not None or strategic_direction:
+                self._append_episodic_event(
+                    session_id=episodic_session_id,
+                    event_type="reasoning",
+                    payload={
+                        "hypotheses": hypotheses_payload,
+                        "entropy": entropy if entropy is not None else 0.0,
+                        "strategic_direction": strategic_direction,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
+        except Exception as e:
+            logger.warning(f"Reasoning episodic event capture failed (non-fatal): {e}")
+
+        self._maybe_enqueue_consolidation(episodic_session_id)
+
+        return outbound
 
     async def _process_system_message(self, msg: InboundMessage) -> OutboundMessage | None:
         """
@@ -677,12 +825,18 @@ Respond with ONLY valid JSON, no markdown fences."""
         """Background worker for non-blocking memory consolidation."""
         while self._running:
             try:
-                session = await asyncio.wait_for(self._consolidation_queue.get(), timeout=1.0)
+                item = await asyncio.wait_for(self._consolidation_queue.get(), timeout=1.0)
             except asyncio.CancelledError:
                 break
             except asyncio.TimeoutError:
                 continue
-            await self._consolidate_memory(session)
+            try:
+                if isinstance(item, str):
+                    self.consolidation_pipeline.run_full_pipeline(session_ids=[item], archive_sessions=False)
+                    continue
+                await self._consolidate_memory(item)
+            except Exception as e:
+                logger.warning(f"Background consolidation failed (non-fatal): {e}")
 
     async def _trigger_reflection(
         self,
