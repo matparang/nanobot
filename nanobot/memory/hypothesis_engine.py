@@ -118,30 +118,28 @@ class HypothesisEngine:
         entity_names = list(entities.keys())
 
         # Check for superlative queries FIRST (who is tallest/shortest, etc.)
+        # Map both max and min forms to the same relation type (the "greater" form)
         superlative_patterns = [
-            (r"who is (?:the\s+)?(tallest|shortest)", ("tallest", "taller_than"), ("shortest", "shorter_than")),
-            (r"who is (?:the\s+)?(biggest|smallest)", ("biggest", "bigger_than"), ("smallest", "smaller_than")),
-            (r"who is (?:the\s+)?(fastest|slowest)", ("fastest", "faster_than"), ("slowest", "slower_than")),
-            (r"who is (?:the\s+)?(oldest|youngest)", ("oldest", "older_than"), ("youngest", "younger_than")),
-            (r"who is (?:the\s+)?(strongest|weakest)", ("strongest", "stronger_than"), ("weakest", "weaker_than")),
-            (r"who is (?:the\s+)?(heaviest|lightest)", ("heaviest", "heavier_than"), ("lightest", "lighter_than")),
-            (r"which is (?:the\s+)?(tallest|shortest)", ("tallest", "taller_than"), ("shortest", "shorter_than")),
-            (r"which is (?:the\s+)?(biggest|smallest)", ("biggest", "bigger_than"), ("smallest", "smaller_than")),
-            (r"which is (?:the\s+)?(fastest|slowest)", ("fastest", "faster_than"), ("slowest", "slower_than")),
+            (r"who is (?:the\s+)?(tallest|shortest)", "taller_than"),
+            (r"who is (?:the\s+)?(biggest|smallest)", "bigger_than"),
+            (r"who is (?:the\s+)?(fastest|slowest)", "faster_than"),
+            (r"who is (?:the\s+)?(oldest|youngest)", "older_than"),
+            (r"who is (?:the\s+)?(strongest|weakest)", "stronger_than"),
+            (r"who is (?:the\s+)?(heaviest|lightest)", "heavier_than"),
+            (r"which is (?:the\s+)?(tallest|shortest)", "taller_than"),
+            (r"which is (?:the\s+)?(biggest|smallest)", "bigger_than"),
+            (r"which is (?:the\s+)?(fastest|slowest)", "faster_than"),
         ]
 
-        for pattern, *mapping_pairs in superlative_patterns:
+        for pattern, rel_type in superlative_patterns:
             match = re.search(pattern, query_lower)
             if match:
                 qualifier = match.group(1)
-                # Map qualifier to relation_type
-                for qual, rel_type in mapping_pairs:
-                    if qualifier == qual:
-                        return {
-                            "type": "superlative",
-                            "qualifier": qualifier,
-                            "relation_type": rel_type
-                        }
+                return {
+                    "type": "superlative",
+                    "qualifier": qualifier,
+                    "relation_type": rel_type
+                }
 
         # Check for comparison queries (who is taller/shorter, etc.)
         comparison_patterns = [
@@ -278,19 +276,38 @@ class HypothesisEngine:
                 })
         else:
             # Try to infer from relationships
-            relationships = self.cache.get_entity_relationships(entities[0])
-            for rel in relationships:
-                if rel["target"] in entities and attribute in rel["type"]:
-                    hypotheses.append({
-                        "intent": f"infer_comparison_{attribute}",
-                        "confidence": 0.7,  # Lower confidence from inference
-                        "reasoning": f"Inferred from relationship: {rel['type']}",
-                        "result": f"Relationship suggests comparison based on {attribute}",
-                        "evidence": {
-                            "type": "relationship_inference",
-                            "relationship": rel
-                        }
-                    })
+            # Check relationships for both entities
+            for entity in entities:
+                relationships = self.cache.get_entity_relationships(entity)
+                for rel in relationships:
+                    # Only consider relationships where this entity is the source
+                    if rel.get("source") != entity:
+                        continue
+                    
+                    # Skip inverse relationships (those created automatically)
+                    if rel.get("properties", {}).get("inverse_of"):
+                        continue
+                    
+                    if rel["target"] in entities:
+                        # Check if this is a relevant comparison relationship
+                        rel_type = rel.get("type", "")
+                        is_relevant = any(
+                            key in rel_type for key in [
+                                "taller", "shorter", "bigger", "smaller", "faster", "slower",
+                                "older", "younger", "heavier", "lighter", "stronger", "weaker"
+                            ]
+                        )
+                        if is_relevant:
+                            hypotheses.append({
+                                "intent": f"infer_comparison_{attribute}",
+                                "confidence": 0.9,  # High confidence from direct relationship
+                                "reasoning": f"Direct relationship found: {rel_type}",
+                                "result": f"{rel['source']} {rel_type.replace('_', ' ')} {rel['target']}",
+                                "evidence": {
+                                    "type": "relationship_comparison",
+                                    "relationship": rel
+                                }
+                            })
 
         return hypotheses[:max_hypotheses]
 
@@ -347,23 +364,13 @@ class HypothesisEngine:
                 in_degree[target] = 0
             in_degree[target] += 1
 
-        # Check for cycles using the cache's detect_cycles method
-        has_cycles = self.cache.detect_cycles(relation_type)
+        # Check for cycles using a custom cycle detection for this relation type
+        has_cycles = self._detect_cycles_for_relation_type(relevant_rels)
 
         if has_cycles:
-            # Inconsistent data - need LLM
-            logger.warning(f"Cycle detected in {relation_type} relationships - returning high entropy")
-            hypotheses.append({
-                "intent": f"detect_cycle_{qualifier}",
-                "confidence": 0.3,
-                "reasoning": f"Inconsistent data: cycle detected in {relation_type} relationships",
-                "result": f"Cannot determine {qualifier} due to contradictory relationships",
-                "evidence": {
-                    "type": "cycle_detected",
-                    "relation_type": relation_type
-                }
-            })
-            return hypotheses
+            # Inconsistent data - return empty hypotheses which will result in high entropy
+            logger.warning(f"Cycle detected in {relation_type} relationships - returning empty hypotheses")
+            return []
 
         # Determine the answer based on qualifier type
         # "tallest" type qualifiers → entity with no incoming edges (source of all chains)
@@ -629,6 +636,54 @@ class HypothesisEngine:
                         visited.add(next_entity)
 
         return paths
+
+    def _detect_cycles_for_relation_type(self, relationships: list[dict[str, Any]]) -> bool:
+        """Detect if there are cycles in a specific set of relationships.
+
+        Args:
+            relationships: List of relationship dictionaries
+
+        Returns:
+            True if cycles are detected, False otherwise
+        """
+        if not relationships:
+            return False
+
+        # Build adjacency list from the given relationships
+        graph = {}
+        for rel in relationships:
+            source = rel["source"]
+            target = rel["target"]
+            if source not in graph:
+                graph[source] = []
+            graph[source].append(target)
+
+        # DFS-based cycle detection
+        visited = set()
+        rec_stack = set()
+
+        def has_cycle_dfs(node: str) -> bool:
+            visited.add(node)
+            rec_stack.add(node)
+
+            for neighbor in graph.get(node, []):
+                if neighbor not in visited:
+                    if has_cycle_dfs(neighbor):
+                        return True
+                elif neighbor in rec_stack:
+                    # Found a cycle
+                    return True
+
+            rec_stack.remove(node)
+            return False
+
+        # Check for cycles from each unvisited node
+        for node in graph:
+            if node not in visited:
+                if has_cycle_dfs(node):
+                    return True
+
+        return False
 
     def _compute_entropy(self, hypotheses: list[dict[str, Any]]) -> float:
         """Compute entropy of hypotheses based on confidence distribution.
