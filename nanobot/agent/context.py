@@ -61,16 +61,21 @@ class ContextBuilder:
         """
         parts = []
 
+        # Log active context stages for debugging
+        enabled_stages = state.get_enabled_context_stages()
+        logger.debug(f"Active context stages: {enabled_stages}")
+
         # Block 1: System & Persona (Static)
-        parts.append(self._get_identity())
+        if state.is_context_stage_enabled("identity"):
+            parts.append(self._get_identity())
 
         # Bootstrap files
-        if state.triune_memory_enabled:
+        if state.is_context_stage_enabled("bootstrap") and state.triune_memory_enabled:
             bootstrap = self._load_bootstrap_files()
             if bootstrap:
                 parts.append(bootstrap)
 
-        if state.latent_reasoning_enabled and latent_state:
+        if state.is_context_stage_enabled("latent_state") and state.latent_reasoning_enabled and latent_state:
             top_intent = (
                 latent_state.hypotheses[0].intent
                 if latent_state.hypotheses
@@ -107,21 +112,24 @@ Do not ignore relevant memory.
         resource_parts = []
 
         # ALS Context
-        als_content = self.memory.get_als_context()
-        if als_content:
-            resource_parts.append(als_content)
+        if state.is_context_stage_enabled("ALS"):
+            als_content = self.memory.get_als_context()
+            if als_content:
+                resource_parts.append(als_content)
 
         # Core Memory (legacy MEMORY.md)
-        core_memory = self.memory.read_long_term()
-        if core_memory:
-            resource_parts.append(f"## Long-term Memory\n{core_memory}")
+        if state.is_context_stage_enabled("core_memory"):
+            core_memory = self.memory.read_long_term()
+            if core_memory:
+                resource_parts.append(f"## Long-term Memory\n{core_memory}")
 
         # Fractal Nodes (token-efficient top-K retrieval)
-        if user_query and (state.mem0_enabled or state.fractal_memory_enabled):
+        if state.is_context_stage_enabled("fractal_memory") and user_query and (state.mem0_enabled or state.fractal_memory_enabled):
             fractal_content = self.memory.retrieve_relevant_nodes(user_query, k=5)
             if fractal_content:
                 resource_parts.append(fractal_content)
-        if state.entangled_memory_enabled and user_query:
+        
+        if state.is_context_stage_enabled("entangled_memory") and state.entangled_memory_enabled and user_query:
             entangled_nodes = self.memory.get_entangled_context(user_query, top_k=5)
             entangled_content = self.memory.format_nodes_for_context(entangled_nodes)
             if entangled_content:
@@ -132,16 +140,18 @@ Do not ignore relevant memory.
 
         # Block 3: Tools/Skills (Capabilities)
         # Always-loaded skills: include full content
-        always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
+        if state.is_context_stage_enabled("skills"):
+            always_skills = self.skills.get_always_skills()
+            if always_skills:
+                always_content = self.skills.load_skills_for_context(always_skills)
+                if always_content:
+                    parts.append(f"# Active Skills\n\n{always_content}")
 
         # Available skills: only show summary (agent uses read_file to load)
-        skills_summary = self.skills.build_skills_summary()
-        if skills_summary:
-            parts.append(f"""# Skills
+        if state.is_context_stage_enabled("skills_summary"):
+            skills_summary = self.skills.build_skills_summary()
+            if skills_summary:
+                parts.append(f"""# Skills
 
 The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
 Skills with available="false" need dependencies installed first - you can try installing them with apt/brew.
@@ -274,11 +284,13 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         messages.append({"role": "system", "content": system_prompt})
 
         # Block 4: Assistant Messages / History (Short-term)
-        messages.extend(history)
+        if state.is_context_stage_enabled("conversation_history"):
+            messages.extend(history)
 
         # Block 5: User Message (The Trigger)
-        user_content = self._build_user_content(current_message, media)
-        messages.append({"role": "user", "content": user_content})
+        if state.is_context_stage_enabled("user_message"):
+            user_content = self._build_user_content(current_message, media)
+            messages.append({"role": "user", "content": user_content})
 
         return messages
 

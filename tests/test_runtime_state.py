@@ -26,10 +26,13 @@ def test_runtime_state_baseline_and_restore():
 
 def test_runtime_state_enter_exit_baseline_tracking():
     previous = state.get_all_toggles()
+    previous_stages = state.get_context_stages()
     try:
         entered = state.enter_baseline_mode()
         assert state.baseline_active is True
-        assert entered == previous
+        # entered dict includes toggles + context_stages
+        assert entered["latent_reasoning"] == previous["latent_reasoning"]
+        assert "context_stages" in entered
         assert all(value is False for value in state.get_all_toggles().values())
 
         state.register_suspended_service("heartbeat")
@@ -38,11 +41,18 @@ def test_runtime_state_enter_exit_baseline_tracking():
         state.exit_baseline_mode(restore=True)
         assert state.baseline_active is False
         assert state.get_all_toggles() == previous
+        assert state.get_context_stages() == previous_stages
         assert state.suspended_services == set()
     finally:
         if state.baseline_active:
             state.exit_baseline_mode(restore=False)
         state.restore_toggles(previous)
+        # Restore context stages
+        for stage_name, enabled in previous_stages.items():
+            if enabled:
+                state.enable_context_stage(stage_name)
+            else:
+                state.disable_context_stage(stage_name)
 
 
 def test_runtime_state_reasoning_modes():

@@ -24,6 +24,20 @@ class RuntimeState:
                 cls._instance._baseline_active = False
                 cls._instance._pre_baseline_state = None
                 cls._instance._suspended_services = set()
+                # Context stage registry - all enabled by default for backward compatibility
+                cls._instance._context_stages = {
+                    "identity": True,
+                    "bootstrap": True,
+                    "latent_state": True,
+                    "ALS": True,
+                    "core_memory": True,
+                    "fractal_memory": True,
+                    "entangled_memory": True,
+                    "skills": True,
+                    "skills_summary": True,
+                    "conversation_history": True,
+                    "user_message": True,
+                }
         return cls._instance
 
     @property
@@ -193,6 +207,7 @@ class RuntimeState:
                 "dual_layer": self._dual_layer_enabled,
                 "chi_tracking": self._chi_tracking_enabled,
                 "reasoning_audit": self._reasoning_audit_enabled,
+                "context_stages": dict(self._context_stages),
             }
             self._latent_reasoning_enabled = False
             self._mem0_enabled = False
@@ -204,6 +219,11 @@ class RuntimeState:
             self._dual_layer_enabled = False
             self._chi_tracking_enabled = False
             self._reasoning_audit_enabled = False
+            # Disable all context stages except identity and user_message
+            for stage_name in self._context_stages:
+                self._context_stages[stage_name] = False
+            self._context_stages["identity"] = True
+            self._context_stages["user_message"] = True
             self._baseline_active = True
             return dict(self._pre_baseline_state)
 
@@ -226,6 +246,9 @@ class RuntimeState:
                 self._dual_layer_enabled = bool(previous.get("dual_layer", True))
                 self._chi_tracking_enabled = bool(previous.get("chi_tracking", True))
                 self._reasoning_audit_enabled = bool(previous.get("reasoning_audit", True))
+                # Restore context stages
+                if "context_stages" in previous:
+                    self._context_stages.update(previous["context_stages"])
 
     def register_suspended_service(self, name: str) -> None:
         with self._lock:
@@ -277,6 +300,56 @@ class RuntimeState:
             else:
                 raise ValueError(f"Unknown reasoning mode: {mode}")
             return previous
+
+    # Context stage control methods
+    def is_context_stage_enabled(self, stage_name: str) -> bool:
+        """Check if a context stage is enabled."""
+        with self._lock:
+            return self._context_stages.get(stage_name, False)
+
+    def enable_context_stage(self, stage_name: str) -> None:
+        """Enable a specific context stage."""
+        with self._lock:
+            if stage_name not in self._context_stages:
+                raise ValueError(f"Unknown context stage: {stage_name}")
+            self._context_stages[stage_name] = True
+
+    def disable_context_stage(self, stage_name: str) -> None:
+        """Disable a specific context stage."""
+        with self._lock:
+            if stage_name not in self._context_stages:
+                raise ValueError(f"Unknown context stage: {stage_name}")
+            self._context_stages[stage_name] = False
+
+    def toggle_context_stage(self, stage_name: str) -> bool:
+        """Toggle a context stage and return its new state."""
+        with self._lock:
+            if stage_name not in self._context_stages:
+                raise ValueError(f"Unknown context stage: {stage_name}")
+            self._context_stages[stage_name] = not self._context_stages[stage_name]
+            return self._context_stages[stage_name]
+
+    def enable_all_context_stages(self) -> None:
+        """Enable all context stages."""
+        with self._lock:
+            for stage_name in self._context_stages:
+                self._context_stages[stage_name] = True
+
+    def disable_all_context_stages(self) -> None:
+        """Disable all context stages."""
+        with self._lock:
+            for stage_name in self._context_stages:
+                self._context_stages[stage_name] = False
+
+    def get_context_stages(self) -> dict[str, bool]:
+        """Get a copy of all context stage states."""
+        with self._lock:
+            return dict(self._context_stages)
+
+    def get_enabled_context_stages(self) -> list[str]:
+        """Get a list of enabled context stage names."""
+        with self._lock:
+            return [name for name, enabled in self._context_stages.items() if enabled]
 
 
 state = RuntimeState()

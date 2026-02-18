@@ -3,18 +3,37 @@
 import tempfile
 from pathlib import Path
 
+import pytest
 import yaml
 
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.memory import MemoryStore
 from nanobot.config.schema import Config, TranslatorConfig
+from nanobot.runtime.state import state
 from nanobot.utils.translator import parse_md_to_yaml, sync_all
+
+
+@pytest.fixture
+def ensure_bootstrap_enabled():
+    """Ensure bootstrap context stage is enabled for tests."""
+    original = state.get_context_stages()
+    original_triune = state.triune_memory_enabled
+    state.enable_context_stage("bootstrap")
+    state.triune_memory_enabled = True
+    yield
+    # Restore
+    for stage_name, enabled in original.items():
+        if enabled:
+            state.enable_context_stage(stage_name)
+        else:
+            state.disable_context_stage(stage_name)
+    state.triune_memory_enabled = original_triune
 
 
 class TestContextBuilderYamlIntegration:
     """Tests for context builder YAML integration."""
 
-    def test_context_builder_reads_yaml_when_available(self):
+    def test_context_builder_reads_yaml_when_available(self, ensure_bootstrap_enabled):
         """Test that context builder uses .yaml when available."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -41,7 +60,7 @@ class TestContextBuilderYamlIntegration:
             assert "AGENTS" in system_prompt
             assert "Guidelines" in system_prompt or "Be helpful" in system_prompt
 
-    def test_context_builder_falls_back_to_md(self):
+    def test_context_builder_falls_back_to_md(self, ensure_bootstrap_enabled):
         """Test that context builder falls back to .md when no .yaml exists."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -65,7 +84,7 @@ Be helpful and accurate.
             assert "Agent Instructions" in system_prompt
             assert "Guidelines" in system_prompt
 
-    def test_context_builder_prefers_yaml_over_md(self):
+    def test_context_builder_prefers_yaml_over_md(self, ensure_bootstrap_enabled):
         """Test that YAML is preferred when both files exist."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -161,7 +180,7 @@ User prefers detailed explanations.
 class TestFullAgentLoopWithYaml:
     """Tests for full agent execution with YAML files."""
 
-    def test_full_context_build_with_yaml_files(self):
+    def test_full_context_build_with_yaml_files(self, ensure_bootstrap_enabled):
         """Test building complete context with YAML files."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)
@@ -201,7 +220,7 @@ class TestFullAgentLoopWithYaml:
             assert "nanobot" in system_prompt  # Identity section always present
             assert "AGENTS" in system_prompt or "Core Principles" in system_prompt
 
-    def test_sync_then_context_build(self):
+    def test_sync_then_context_build(self, ensure_bootstrap_enabled):
         """Test syncing MD files then building context from YAML."""
         with tempfile.TemporaryDirectory() as tmpdir:
             workspace = Path(tmpdir)

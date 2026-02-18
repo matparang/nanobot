@@ -88,6 +88,7 @@ def test_system_prompt_respects_runtime_memory_toggles(monkeypatch):
             state.fractal_memory_enabled,
             state.entangled_memory_enabled,
         )
+        previous_stages = state.get_context_stages()
         try:
             state.triune_memory_enabled = False
             state.latent_reasoning_enabled = False
@@ -103,6 +104,10 @@ def test_system_prompt_respects_runtime_memory_toggles(monkeypatch):
             state.latent_reasoning_enabled = True
             state.fractal_memory_enabled = True
             state.entangled_memory_enabled = True
+            # Also ensure context stages are enabled
+            state.enable_context_stage("bootstrap")
+            state.enable_context_stage("latent_state")
+            state.enable_context_stage("fractal_memory")
             prompt = context.build_system_prompt(user_query="hello", latent_state=latent_state)
             assert "BOOTSTRAP" in prompt
             assert "<latent_state>" in prompt
@@ -115,6 +120,12 @@ def test_system_prompt_respects_runtime_memory_toggles(monkeypatch):
                 state.fractal_memory_enabled,
                 state.entangled_memory_enabled,
             ) = previous
+            # Restore context stages
+            for stage_name, enabled in previous_stages.items():
+                if enabled:
+                    state.enable_context_stage(stage_name)
+                else:
+                    state.disable_context_stage(stage_name)
 
 
 def test_fractal_node_serialization():
