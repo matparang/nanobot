@@ -1212,12 +1212,14 @@ def status():
 
 from nanobot.cli.triune_commands import triune_app
 from nanobot.cli.context_commands import context_app
+from nanobot.cli.memory_commands import app as memory_app
 
 app.add_typer(triune_app, name="triune")
 app.add_typer(reasoning_app, name="reasoning")
 
 app.add_typer(state_app, name="state")
 app.add_typer(context_app, name="context-stage")
+app.add_typer(memory_app, name="memory")
 
 
 if __name__ == "__main__":

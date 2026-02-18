@@ -221,69 +221,88 @@ def test_entanglement_cycle_detection():
 
 @pytest.mark.asyncio
 async def test_latent_reasoning_pipeline():
-    mock_provider = AsyncMock()
-    mock_provider.chat.return_value = LLMResponse(
-        content='{"hypotheses":[{"intent":"search","confidence":0.9,"reasoning":"direct lookup"}]}'
-    )
+    # Enable latent reasoning in runtime state
+    original_latent = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        
+        mock_provider = AsyncMock()
+        mock_provider.chat.return_value = LLMResponse(
+            content='{"hypotheses":[{"intent":"search","confidence":0.9,"reasoning":"direct lookup"}]}'
+        )
 
-    reasoner = LatentReasoner(
-        provider=mock_provider,
-        model="test-model",
-        memory_config={"clarify_entropy_threshold": 0.5, "latent_max_depth": 1, "beam_width": 3},
-    )
-    state = await reasoner.reason("Find weather in Tokyo", context_summary="")
+        reasoner = LatentReasoner(
+            provider=mock_provider,
+            model="test-model",
+            memory_config={"clarify_entropy_threshold": 0.5, "latent_max_depth": 1, "beam_width": 3},
+        )
+        latent_state = await reasoner.reason("Find weather in Tokyo", context_summary="")
 
-    assert state.hypotheses[0].intent == "search"
-    assert state.hypotheses[0].confidence == 0.9
-    assert state.entropy == 0.0
-    assert mock_provider.chat.call_count >= 1
+        assert latent_state.hypotheses[0].intent == "search"
+        assert latent_state.hypotheses[0].confidence == 0.9
+        assert latent_state.entropy == 0.0
+        assert mock_provider.chat.call_count >= 1
+    finally:
+        state.latent_reasoning_enabled = original_latent
 
 
 @pytest.mark.asyncio
 async def test_latent_reasoning_retries_transient_errors():
-    mock_provider = AsyncMock()
-    mock_provider.chat.side_effect = [
-        ConnectionError("transient failure"),
-        ConnectionError("transient failure"),
-        LLMResponse(content='{"hypotheses":[{"intent":"search","confidence":0.8}]}'),
-    ]
+    original_latent = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        
+        mock_provider = AsyncMock()
+        mock_provider.chat.side_effect = [
+            ConnectionError("transient failure"),
+            ConnectionError("transient failure"),
+            LLMResponse(content='{"hypotheses":[{"intent":"search","confidence":0.8}]}'),
+        ]
 
-    reasoner = LatentReasoner(provider=mock_provider, model="test-model")
-    state = await reasoner.reason("retry please", context_summary="")
+        reasoner = LatentReasoner(provider=mock_provider, model="test-model")
+        latent_state = await reasoner.reason("retry please", context_summary="")
 
-    assert state.hypotheses
-    assert mock_provider.chat.call_count == 3
+        assert latent_state.hypotheses
+        assert mock_provider.chat.call_count == 3
+    finally:
+        state.latent_reasoning_enabled = original_latent
 
 
 @pytest.mark.asyncio
 async def test_latent_reasoning_iterative_beam_pruning():
-    provider = AsyncMock()
-    provider.chat.return_value = LLMResponse(
-        content='{"hypotheses":[{"intent":"a","confidence":0.5,"reasoning":"a"},{"intent":"b","confidence":0.5,"reasoning":"b"}]}'
-    )
+    original_latent = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        
+        provider = AsyncMock()
+        provider.chat.return_value = LLMResponse(
+            content='{"hypotheses":[{"intent":"a","confidence":0.5,"reasoning":"a"},{"intent":"b","confidence":0.5,"reasoning":"b"}]}'
+        )
 
-    reasoner = LatentReasoner(
-        provider=provider,
-        model="test-model",
-        memory_config={
-            "clarify_entropy_threshold": 0.9,
-            "latent_max_depth": 1,
-            "beam_width": 2,
-            "monte_carlo_samples": 1,
-        },
-    )
-    reasoner._monte_carlo_expand = AsyncMock(
-        return_value=[
-            reasoner._parse_hypotheses(
-                '{"hypotheses":[{"intent":"c","confidence":0.9,"reasoning":"c"}]}'
-            )[0]
-        ]
-    )
+        reasoner = LatentReasoner(
+            provider=provider,
+            model="test-model",
+            memory_config={
+                "clarify_entropy_threshold": 0.9,
+                "latent_max_depth": 1,
+                "beam_width": 2,
+                "monte_carlo_samples": 1,
+            },
+        )
+        reasoner._monte_carlo_expand = AsyncMock(
+            return_value=[
+                reasoner._parse_hypotheses(
+                    '{"hypotheses":[{"intent":"c","confidence":0.9,"reasoning":"c"}]}'
+                )[0]
+            ]
+        )
 
-    state = await reasoner.reason("ambiguous", context_summary="ctx")
-    assert len(state.hypotheses) == 2
-    assert any(h.intent == "c" for h in state.hypotheses)
-    reasoner._monte_carlo_expand.assert_awaited_once()
+        latent_state = await reasoner.reason("ambiguous", context_summary="ctx")
+        assert len(latent_state.hypotheses) == 2
+        assert any(h.intent == "c" for h in latent_state.hypotheses)
+        reasoner._monte_carlo_expand.assert_awaited_once()
+    finally:
+        state.latent_reasoning_enabled = original_latent
 
 
 @pytest.mark.asyncio
@@ -310,17 +329,23 @@ async def test_monte_carlo_expand_uses_sampling_count():
 
 @pytest.mark.asyncio
 async def test_latent_retry_attempts_are_configurable():
-    provider = AsyncMock()
-    provider.chat.side_effect = ConnectionError("always fails")
-    reasoner = LatentReasoner(
-        provider=provider,
-        model="test-model",
-        memory_config={"latent_retry_attempts": 2},
-    )
+    original_latent = state.latent_reasoning_enabled
+    try:
+        state.latent_reasoning_enabled = True
+        
+        provider = AsyncMock()
+        provider.chat.side_effect = ConnectionError("always fails")
+        reasoner = LatentReasoner(
+            provider=provider,
+            model="test-model",
+            memory_config={"latent_retry_attempts": 2},
+        )
 
-    state = await reasoner.reason("retry", context_summary="")
-    assert state.hypotheses == []
-    assert provider.chat.await_count == 2
+        latent_state = await reasoner.reason("retry", context_summary="")
+        assert latent_state.hypotheses == []
+        assert provider.chat.await_count == 2
+    finally:
+        state.latent_reasoning_enabled = original_latent
 
 
 @pytest.mark.asyncio
