@@ -14,8 +14,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.memory import MemoryStore
-from nanobot.agent.memory_types import ContentType
 from nanobot.memory.relational_cache import RelationalCache
 from nanobot.memory.session_store import SessionStore
 
@@ -43,7 +41,11 @@ class ConsolidationPipeline:
         self.workspace = Path(workspace)
         self.session_store = SessionStore(workspace)
         self.relational_cache = RelationalCache(workspace)
+        from nanobot.agent.memory import MemoryStore
+        from nanobot.agent.memory_types import ContentType
+
         self.memory_store = MemoryStore(workspace, memory_config or {})
+        self._content_type_enum = ContentType
 
     def consolidate_session(
         self,
@@ -180,7 +182,7 @@ class ConsolidationPipeline:
                 content=lesson_content,
                 tags=[pattern_type, "consolidated", "relational"],
                 summary=f"Consolidated {pattern_type} patterns ({len(group_patterns)} patterns)",
-                content_type=ContentType.TEXT
+                content_type=self._content_type_enum.TEXT
             )
 
             created_nodes.append(node.id)
