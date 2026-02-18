@@ -74,3 +74,32 @@ def test_runtime_state_reasoning_modes():
         assert state.dual_layer_enabled is True
     finally:
         state.restore_toggles(previous)
+
+
+def test_latent_enabled_gate_with_baseline():
+    """Test that latent reasoning is disabled in baseline mode."""
+    previous = state.get_all_toggles()
+    previous_baseline = state.baseline_active
+    try:
+        # Test when latent is enabled
+        state.latent_reasoning_enabled = True
+        assert state.latent_reasoning_enabled is True
+        
+        # Test when latent is disabled
+        state.latent_reasoning_enabled = False
+        assert state.latent_reasoning_enabled is False
+        
+        # Test that baseline mode disables latent
+        state.latent_reasoning_enabled = True
+        assert state.latent_reasoning_enabled is True
+        
+        state.enter_baseline_mode()
+        assert state.latent_reasoning_enabled is False, "Baseline mode should disable latent"
+        assert state.baseline_active is True
+        
+        state.exit_baseline_mode(restore=True)
+        assert state.latent_reasoning_enabled is True, "Should restore after baseline exit"
+    finally:
+        if state.baseline_active:
+            state.exit_baseline_mode(restore=False)
+        state.restore_toggles(previous)

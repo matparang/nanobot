@@ -14,7 +14,23 @@ from litellm import acompletion
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.providers.registry import find_by_model, find_gateway
-from nanobot.runtime.state import state
+
+
+def _latent_enabled() -> bool:
+    """
+    Check if latent reasoning is enabled.
+    
+    This is a local helper to avoid circular imports.
+    The actual gate logic is in nanobot.agent.latent.latent_enabled().
+    """
+    from nanobot.runtime.state import state
+    
+    # Baseline mode always disables latent reasoning
+    if state.baseline_active:
+        return False
+    
+    # Check the runtime toggle
+    return state.latent_reasoning_enabled
 
 
 class LiteLLMProvider(LLMProvider):
@@ -133,7 +149,8 @@ class LiteLLMProvider(LLMProvider):
         model = self._resolve_model(model or self.default_model)
         prepared_messages = copy.deepcopy(messages)
 
-        if state.latent_reasoning_enabled:
+        # Use centralized latent gate for reasoning mode
+        if _latent_enabled():
             max_tokens = max(max_tokens, 1024)
             for msg in prepared_messages:
                 if msg.get("role") == "system":
@@ -299,42 +316,66 @@ class LiteLLMProvider(LLMProvider):
                     finish_reason="error",
                 )
 
-            choices = data.get('choices')
-            if not choices:
+            # Safely extract choices with defaults
+            if not isinstance(data, dict):
                 return LLMResponse(
-                    content="Local endpoint error: missing choices in response",
+                    content="Local endpoint error: response is not a dict",
+                    finish_reason="error",
+                )
+            
+            choices = data.get('choices')
+            if not choices or not isinstance(choices, list):
+                return LLMResponse(
+                    content="Local endpoint error: missing or invalid choices in response",
                     finish_reason="error",
                 )
 
-            choice = choices[0]
-            message = choice.get('message', {})
+            choice = choices[0] if isinstance(choices[0], dict) else {}
+            message = choice.get('message')
+            if not isinstance(message, dict):
+                message = {}
+            
             content = message.get('content')
             tool_calls = []
-            if 'tool_calls' in message:
-                for tc in message['tool_calls']:
-                    arguments = tc.get('function', {}).get('arguments', '{}')
+            
+            # Safely parse tool_calls
+            raw_tool_calls = message.get('tool_calls')
+            if isinstance(raw_tool_calls, list):
+                for tc in raw_tool_calls:
+                    if not isinstance(tc, dict):
+                        continue
+                    
+                    function = tc.get('function')
+                    if not isinstance(function, dict):
+                        function = {}
+                    
+                    arguments = function.get('arguments', '{}')
                     if isinstance(arguments, str):
                         try:
-                            arguments = json.loads(arguments)
+                            arguments = json.loads(arguments) if arguments.strip() else {}
                         except json.JSONDecodeError:
                             arguments = {"raw": arguments}
+                    elif not isinstance(arguments, dict):
+                        arguments = {}
+                    
                     tool_calls.append(
                         ToolCallRequest(
-                            id=tc.get('id'),
-                            name=tc.get('function', {}).get('name'),
+                            id=tc.get('id', ''),
+                            name=function.get('name', ''),
                             arguments=arguments,
                         )
                     )
 
-            if not content and not tool_calls:
+            # Allow empty content if tool_calls are present
+            if content is None and not tool_calls:
                 return LLMResponse(
-                    content="Local endpoint error: missing or empty content and tool_calls in response",
+                    content="Local endpoint error: missing content and tool_calls in response",
                     finish_reason="error",
                 )
             
             return LLMResponse(
                 # OpenAI-compatible tool calls can legitimately return null content.
-                content=content or "",
+                content=content if content is not None else "",
                 tool_calls=tool_calls,
                 finish_reason=choice.get('finish_reason', 'stop'),
             )

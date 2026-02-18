@@ -13,6 +13,44 @@ from tenacity import AsyncRetrying, retry_if_exception_type, stop_after_attempt,
 from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
 from nanobot.middleware.circuit_breaker import CircuitBreaker, CircuitOpenError
 from nanobot.providers.base import LLMProvider
+from nanobot.runtime.state import state
+
+
+# Track whether we've logged the disabled message this session
+_latent_disabled_logged = False
+
+
+def latent_enabled() -> bool:
+    """
+    Centralized gate function for latent reasoning.
+    
+    Returns False if:
+    - Baseline mode is active (highest priority)
+    - state.latent_reasoning_enabled is False
+    
+    This is the single source of truth for whether latent reasoning
+    should execute. All latent reasoning entry points must check this gate.
+    
+    Returns:
+        True if latent reasoning should execute, False otherwise.
+    """
+    global _latent_disabled_logged
+    
+    # Baseline mode always disables latent reasoning
+    if state.baseline_active:
+        if not _latent_disabled_logged:
+            logger.info("Latent reasoning disabled: baseline mode active")
+            _latent_disabled_logged = True
+        return False
+    
+    # Check the runtime toggle
+    if not state.latent_reasoning_enabled:
+        if not _latent_disabled_logged:
+            logger.info("Latent reasoning disabled for this session")
+            _latent_disabled_logged = True
+        return False
+    
+    return True
 
 
 class LatentReasoner:
@@ -64,6 +102,16 @@ class LatentReasoner:
         return ""
 
     async def reason(self, user_message: str, context_summary: str) -> SuperpositionalState:
+        """
+        Perform latent reasoning to generate hypotheses about user intent.
+        
+        Returns a fallback SuperpositionalState if latent reasoning is disabled
+        or if an error occurs.
+        """
+        # Check the centralized gate first
+        if not latent_enabled():
+            return self._fallback_state()
+        
         fallback_state = self._fallback_state()
         try:
             return await self.circuit_breaker.call(
@@ -165,31 +213,80 @@ class LatentReasoner:
         )
 
     def _parse_hypotheses(self, payload: str) -> list[Hypothesis]:
+        """
+        Parse hypotheses from LLM response with robust error handling.
+        
+        Handles:
+        - Empty responses
+        - Malformed JSON
+        - Missing fields
+        - Unexpected data types
+        """
+        if not payload or not payload.strip():
+            logger.warning("Latent reasoning: empty response from model")
+            return []
+        
+        # Strip markdown code blocks
         if payload.startswith("```"):
             payload = payload.removeprefix("```json").removeprefix("```").strip()
             if payload.endswith("```"):
                 payload = payload[:-3].strip()
-
-        parsed = json.loads(payload)
+        
+        try:
+            parsed = json.loads(payload)
+        except JSONDecodeError as e:
+            logger.warning(
+                f"Latent reasoning: JSON parse error - {e}. "
+                f"Response (truncated): {payload[:200]}..."
+            )
+            return []
+        
+        # Handle different response structures
+        if not isinstance(parsed, dict):
+            logger.warning(
+                f"Latent reasoning: expected dict, got {type(parsed).__name__}. "
+                f"Response (truncated): {str(parsed)[:200]}..."
+            )
+            return []
+        
         if "hypotheses" in parsed:
             hypotheses_data = parsed["hypotheses"]
         elif all(k in parsed for k in ("intent", "confidence")):
             hypotheses_data = [parsed]
         else:
-            hypotheses_data = []
-
+            logger.warning(
+                f"Latent reasoning: no hypotheses found in response. "
+                f"Keys: {list(parsed.keys())}"
+            )
+            return []
+        
+        if not isinstance(hypotheses_data, list):
+            logger.warning(
+                f"Latent reasoning: hypotheses should be list, got {type(hypotheses_data).__name__}"
+            )
+            return []
+        
         hypotheses = []
         for item in hypotheses_data:
             if not isinstance(item, dict):
                 continue
-            confidence = float(item.get("confidence", 0.0))
-            hypotheses.append(
-                Hypothesis(
-                    intent=str(item.get("intent", "unknown")),
-                    confidence=max(confidence, 0.0),
-                    reasoning=str(item.get("reasoning", "latent inference")),
+            
+            try:
+                confidence = float(item.get("confidence", 0.0))
+                hypotheses.append(
+                    Hypothesis(
+                        intent=str(item.get("intent", "unknown")),
+                        confidence=max(confidence, 0.0),
+                        reasoning=str(item.get("reasoning", "latent inference")),
+                    )
                 )
-            )
+            except (ValueError, TypeError, ValidationError) as e:
+                logger.debug(f"Latent reasoning: skipping invalid hypothesis - {e}")
+                continue
+        
+        if not hypotheses:
+            logger.warning("Latent reasoning: no valid hypotheses parsed from response")
+        
         return hypotheses
 
     def _score_hypothesis(self, hypothesis: Hypothesis) -> float:

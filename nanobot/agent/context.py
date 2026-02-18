@@ -7,6 +7,7 @@ import platform
 from pathlib import Path
 from typing import Any
 
+from nanobot.agent.latent import latent_enabled
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.memory_types import SuperpositionalState
 from nanobot.agent.skills import SkillsLoader
@@ -75,7 +76,8 @@ class ContextBuilder:
             if bootstrap:
                 parts.append(bootstrap)
 
-        if state.is_context_stage_enabled("latent_state") and state.latent_reasoning_enabled and latent_state:
+        # Inject latent state only if latent reasoning is enabled
+        if state.is_context_stage_enabled("latent_state") and latent_enabled() and latent_state:
             top_intent = (
                 latent_state.hypotheses[0].intent
                 if latent_state.hypotheses

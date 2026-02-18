@@ -658,6 +658,7 @@ def agent(
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    latent: str = typer.Option(None, "--latent", help="Enable/disable latent reasoning (on/off)"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -667,7 +668,24 @@ def agent(
     from nanobot.config.loader import load_config
 
     config = load_config()
-    state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
+    
+    # Set latent reasoning state from CLI flag or config
+    if latent:
+        if latent.lower() == "on":
+            state.latent_reasoning_enabled = True
+        elif latent.lower() == "off":
+            state.latent_reasoning_enabled = False
+        else:
+            console.print(f"[yellow]Invalid --latent value '{latent}'. Use 'on' or 'off'.[/yellow]")
+            raise typer.Exit(code=1)
+    else:
+        state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
+    
+    # Baseline mode always overrides
+    if state.baseline_active:
+        console.print("[yellow]Latent reasoning disabled: baseline mode active[/yellow]")
+    elif not state.latent_reasoning_enabled:
+        console.print("[yellow]Latent reasoning disabled for this session[/yellow]")
 
     bus = MessageBus()
     provider = _make_provider(config)
