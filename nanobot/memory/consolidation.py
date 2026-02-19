@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.memory.relational_cache import RelationalCache
 from nanobot.memory.session_store import SessionStore
 
@@ -48,7 +50,6 @@ class ConsolidationPipeline:
         if self.use_memory_v2:
             from nanobot.memory.relational_cache_v2 import RelationalCacheV2
             from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
-            from loguru import logger
             
             self.relational_cache = None  # v1 cache not used
             self.cache_v2 = RelationalCacheV2()
@@ -174,7 +175,6 @@ class ConsolidationPipeline:
         relationships_reextracted = 0
         if extract_entities:
             try:
-                from loguru import logger
                 
                 if self.use_memory_v2:
                     # Use v2 extractor with confidence gating
