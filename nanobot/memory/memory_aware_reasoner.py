@@ -52,6 +52,7 @@ class MemoryAwareReasoner:
         self.hypothesis_engine = None
         self.reasoner_v2 = None
         self.cache_v2 = None
+        self.deterministic_agent = None
         
         if workspace:
             if self.use_memory_v2:
@@ -59,9 +60,11 @@ class MemoryAwareReasoner:
                 try:
                     from nanobot.memory.relational_cache_v2 import RelationalCacheV2
                     from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
+                    from nanobot.memory.deterministic_agent import DeterministicReasoningAgent
                     
                     self.cache_v2 = RelationalCacheV2()
                     self.reasoner_v2 = MemoryFirstReasonerV2(cache=self.cache_v2)
+                    self.deterministic_agent = DeterministicReasoningAgent(cache=self.cache_v2)
                     logger.info("MemoryFirstReasonerV2 initialized for memory-aware reasoning (v2)")
                 except Exception as e:
                     logger.warning(f"Failed to initialize v2 reasoner: {e}")
