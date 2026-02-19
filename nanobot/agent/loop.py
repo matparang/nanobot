@@ -41,6 +41,7 @@ from nanobot.telemetry.metrics import (
 )
 from nanobot.memory.consolidation import ConsolidationPipeline
 from nanobot.memory.session_store import SessionStore
+from nanobot.cognitive.cognitive_controller import CognitiveController
 
 
 class AgentLoop:
@@ -133,6 +134,14 @@ class AgentLoop:
         self._episodic_enabled = bool(self.memory_config.get("episodic_enabled", True))
         self._auto_consolidate_enabled = bool(self.memory_config.get("auto_consolidate_enabled", True))
         self._auto_consolidate_event_threshold = int(self.memory_config.get("auto_consolidate_event_threshold", 40))
+
+        cognitive_enabled = self.memory_config.get("cognitive_controller_enabled", False)
+        self.cognitive_controller = CognitiveController(
+            observation_config=self.memory_config.get("cognitive_observation", {}),
+            confidence_config=self.memory_config.get("cognitive_confidence", {}),
+            working_memory_config=self.memory_config.get("cognitive_working_memory", {}),
+            enabled=bool(cognitive_enabled),
+        )
 
         # Wire memory-aware reasoning if episodic memory is enabled
         if self._episodic_enabled:
@@ -619,10 +628,20 @@ class AgentLoop:
         should_clarify = False
         if state.dual_layer_enabled:
             latent_start = time.time()
-            dual_result = await self.dual_reasoner.reason(
-                user_message=msg.content,
-                context_summary=latent_context,
-            )
+            if self.cognitive_controller.enabled:
+                dual_result = await self.cognitive_controller.process(
+                    query=msg.content,
+                    context_summary=latent_context,
+                    session_id=session_key or "",
+                    reason_fn=lambda q, ctx: self.dual_reasoner.reason(
+                        user_message=q, context_summary=ctx
+                    ),
+                )
+            else:
+                dual_result = await self.dual_reasoner.reason(
+                    user_message=msg.content,
+                    context_summary=latent_context,
+                )
             latent_reasoning_duration.observe(time.time() - latent_start)
             latent_state = dual_result.final_state
             should_clarify = (
