@@ -29,7 +29,8 @@ try:
     from nanobot.memory.query_parser_v2 import DeterministicQueryParser
     from nanobot.memory.deterministic_agent import DeterministicReasoningAgent
     from nanobot.memory.graph_persistence import GraphPersistence
-    
+    from nanobot.memory.logic_memory import LogicMemory
+
     __all__ = [
         # V2 types
         'TruthValue',
@@ -57,6 +58,8 @@ try:
         'DeterministicQueryParser',
         'DeterministicReasoningAgent',
         'GraphPersistence',
+        # Deterministic LogicMemory integration
+        'LogicMemory',
     ]
 except ImportError:
     # V2 modules not available or dependencies missing

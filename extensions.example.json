@@ -27,7 +27,10 @@
       "latentRetryMinWait": 1.0,
       "latentRetryMaxWait": 5.0,
       "latentRetryMultiplier": 1.0,
-      "importanceDecayRate": 0.01
+      "importanceDecayRate": 0.01,
+      "useMemoryV2": false,
+      "confidenceThreshold": 0.9,
+      "deterministicLogic": false
     },
     "translator": {
       "enabled": true,
