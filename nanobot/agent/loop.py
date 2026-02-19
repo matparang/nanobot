@@ -758,6 +758,7 @@ class AgentLoop:
         tools_used: list[str] = []
         active_sessions.set(len(self.sessions._cache))
 
+        # If deterministic logic already resolved the query, skip the LLM/tool loop.
         while iteration < self.max_iterations and final_content is None:
             iteration += 1
 
