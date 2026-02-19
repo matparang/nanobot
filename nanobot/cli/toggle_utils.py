@@ -85,6 +85,7 @@ def batch_toggle(
         "reasoning_audit": "reasoning_audit_enabled",
         "deterministic_logic": "deterministic_logic_enabled",
         "memory_v2": "use_memory_v2",
+        "belief_engine": "belief_engine_enabled",
     }
     for name, new_value in toggles.items():
         attr_name = attr_mapping.get(name, name)
@@ -114,6 +115,7 @@ def baseline_toggle_all(
         "reasoning_audit": enable,
         "deterministic_logic": enable,
         "memory_v2": enable,
+        "belief_engine": enable,
     }
     results = batch_toggle(state_obj, all_features, log_source)
     audit_log(

@@ -28,6 +28,7 @@ class RuntimeState:
                 cls._instance._hypothesis_engine_enabled = True  # HypothesisEngine enabled by default
                 cls._instance._deterministic_logic_enabled = False
                 cls._instance._use_memory_v2 = False
+                cls._instance._belief_engine_enabled = False
                 # Context stage registry - all enabled by default for backward compatibility
                 cls._instance._context_stages = {
                     "identity": True,
@@ -184,6 +185,16 @@ class RuntimeState:
         with self._lock:
             self._use_memory_v2 = bool(enabled)
 
+    @property
+    def belief_engine_enabled(self) -> bool:
+        with self._lock:
+            return self._belief_engine_enabled
+
+    @belief_engine_enabled.setter
+    def belief_engine_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._belief_engine_enabled = bool(enabled)
+
     def get_all_toggles(self) -> dict[str, bool]:
         """Return all runtime toggle values keyed by stable CLI-friendly names."""
         with self._lock:
@@ -202,6 +213,7 @@ class RuntimeState:
                 "hypothesis_engine": self._hypothesis_engine_enabled,
                 "deterministic_logic": self._deterministic_logic_enabled,
                 "memory_v2": self._use_memory_v2,
+                "belief_engine": self._belief_engine_enabled,
             }
 
     def set_baseline_mode(self) -> dict[str, bool]:
@@ -221,6 +233,7 @@ class RuntimeState:
                 "hypothesis_engine": self._hypothesis_engine_enabled,
                 "deterministic_logic": self._deterministic_logic_enabled,
                 "memory_v2": self._use_memory_v2,
+                "belief_engine": self._belief_engine_enabled,
             }
             self._latent_reasoning_enabled = False
             self._mem0_enabled = False
@@ -236,6 +249,7 @@ class RuntimeState:
             self._hypothesis_engine_enabled = False
             self._deterministic_logic_enabled = False
             self._use_memory_v2 = False
+            self._belief_engine_enabled = False
             return previous
 
     @property
@@ -267,6 +281,7 @@ class RuntimeState:
                 "hypothesis_engine": self._hypothesis_engine_enabled,
                 "deterministic_logic": self._deterministic_logic_enabled,
                 "memory_v2": self._use_memory_v2,
+                "belief_engine": self._belief_engine_enabled,
                 "context_stages": dict(self._context_stages),
             }
             self._latent_reasoning_enabled = False
@@ -283,6 +298,7 @@ class RuntimeState:
             self._hypothesis_engine_enabled = False
             self._deterministic_logic_enabled = False
             self._use_memory_v2 = False
+            self._belief_engine_enabled = False
             # Disable all context stages except identity and user_message
             for stage_name in self._context_stages:
                 self._context_stages[stage_name] = False
@@ -314,6 +330,7 @@ class RuntimeState:
                 self._hypothesis_engine_enabled = bool(previous.get("hypothesis_engine", True))
                 self._deterministic_logic_enabled = bool(previous.get("deterministic_logic", False))
                 self._use_memory_v2 = bool(previous.get("memory_v2", False))
+                self._belief_engine_enabled = bool(previous.get("belief_engine", False))
                 # Restore context stages
                 if "context_stages" in previous:
                     self._context_stages.update(previous["context_stages"])
@@ -342,6 +359,7 @@ class RuntimeState:
             self._hypothesis_engine_enabled = bool(states.get("hypothesis_engine", True))
             self._deterministic_logic_enabled = bool(states.get("deterministic_logic", False))
             self._use_memory_v2 = bool(states.get("memory_v2", False))
+            self._belief_engine_enabled = bool(states.get("belief_engine", False))
 
     def set_reasoning_mode(self, mode: str) -> dict[str, bool]:
         """Set predefined reasoning modes."""

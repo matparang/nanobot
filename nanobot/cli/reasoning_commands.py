@@ -27,6 +27,7 @@ def reasoning_status(json_output: bool = typer.Option(False, "--json")) -> None:
         "reasoning_audit": toggles.get("reasoning_audit", False),
         "deterministic_logic": toggles.get("deterministic_logic", False),
         "memory_v2": toggles.get("memory_v2", False),
+        "belief_engine": toggles.get("belief_engine", False),
     }
     if json_output:
         console.print_json(json.dumps(data))
@@ -87,4 +88,11 @@ def toggle_deterministic_logic(action: str | None = typer.Argument(None)) -> Non
 def toggle_memory_v2(action: str | None = typer.Argument(None)) -> None:
     """Toggle memory-first reasoning v2 (MemoryFirstReasonerV2) on/off."""
     if not toggle_feature("memory_v2", state, "use_memory_v2", action or "interactive"):
+        raise typer.Exit(code=1)
+
+
+@reasoning_app.command("belief-engine")
+def toggle_belief_engine(action: str | None = typer.Argument(None)) -> None:
+    """Toggle NanobotBeliefEngine on/off."""
+    if not toggle_feature("belief_engine", state, "belief_engine_enabled", action or "interactive"):
         raise typer.Exit(code=1)
