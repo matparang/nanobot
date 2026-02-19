@@ -150,9 +150,9 @@ class RelationalCacheV2:
             )
         
         # Check if opposite relation is provable (makes this FALSE)
-        inverse_type = self._get_inverse(relation_type)
-        inverse_path = self._find_path_bfs(b, a, inverse_type)
-        if inverse_path:
+        # If we can prove B relation_type A, then A relation_type B is FALSE
+        opposite_path = self._find_path_bfs(b, a, relation_type)
+        if opposite_path:
             logger.debug(
                 f"Query {a} {relation_type.value} {b}: opposite provable -> FALSE"
             )
@@ -160,7 +160,7 @@ class RelationalCacheV2:
                 value=TruthValue.FALSE,
                 message=f"NOT {a} {relation_type.value} {b} (opposite provable)",
                 source="opposite_provable",
-                details={"opposite_path": inverse_path}
+                details={"opposite_path": opposite_path}
             )
         
         # No information -> UNKNOWN
