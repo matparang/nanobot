@@ -406,6 +406,13 @@ def _apply_cognitive_controller_override(
     return updated
 
 
+def _inject_deterministic_toggles(memory_config: dict) -> dict:
+    """Inject runtime deterministic reasoning toggle state into memory_config."""
+    memory_config["deterministic_logic"] = state.deterministic_logic_enabled
+    memory_config["use_memory_v2"] = state.use_memory_v2
+    return memory_config
+
+
 def _get_rate_limit_config(config: "Config") -> dict:
     """Extract rate limit configuration from extensions config."""
     from nanobot.config import get_extension_loader
@@ -505,10 +512,10 @@ def gateway(
         state.hypothesis_engine_enabled = memory_cfg.get("hypothesis_engine_enabled", True)
     
     state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
-    memory_config = _apply_cognitive_controller_override(
+    memory_config = _inject_deterministic_toggles(_apply_cognitive_controller_override(
         _get_memory_config(config),
         cognitive_controller,
-    )
+    ))
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
@@ -785,10 +792,10 @@ def agent(
     else:
         state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
     
-    memory_config = _apply_cognitive_controller_override(
+    memory_config = _inject_deterministic_toggles(_apply_cognitive_controller_override(
         _get_memory_config(config),
         cognitive_controller,
-    )
+    ))
 
     # Baseline mode always overrides
     if state.baseline_active:

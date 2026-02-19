@@ -83,6 +83,8 @@ def batch_toggle(
         "dual_layer": "dual_layer_enabled",
         "chi_tracking": "chi_tracking_enabled",
         "reasoning_audit": "reasoning_audit_enabled",
+        "deterministic_logic": "deterministic_logic_enabled",
+        "memory_v2": "use_memory_v2",
     }
     for name, new_value in toggles.items():
         attr_name = attr_mapping.get(name, name)
@@ -110,6 +112,8 @@ def baseline_toggle_all(
         "dual_layer": enable,
         "chi_tracking": enable,
         "reasoning_audit": enable,
+        "deterministic_logic": enable,
+        "memory_v2": enable,
     }
     results = batch_toggle(state_obj, all_features, log_source)
     audit_log(
