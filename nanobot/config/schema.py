@@ -265,6 +265,13 @@ class MemoryConfig(BaseModel):
     latent_retry_multiplier: float = 1.0
     importance_decay_rate: float = 0.01
 
+    # V2 relational reasoning settings
+    use_memory_v2: bool = False  # Enable v2 memory-first reasoning (MemoryFirstReasonerV2)
+    confidence_threshold: float = 0.9  # Confidence threshold for v2 relation extraction
+
+    # Deterministic LogicMemory integration
+    deterministic_logic: bool = False  # Enable graph-based deterministic LogicMemory
+
 
 class TranslatorConfig(BaseModel):
     """Triune Memory Translator configuration."""
