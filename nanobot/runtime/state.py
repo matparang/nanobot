@@ -181,6 +181,7 @@ class RuntimeState:
                 "dual_layer": self._dual_layer_enabled,
                 "chi_tracking": self._chi_tracking_enabled,
                 "reasoning_audit": self._reasoning_audit_enabled,
+                "llm": self._llm_enabled,
             }
             self._latent_reasoning_enabled = False
             self._mem0_enabled = False
@@ -192,6 +193,7 @@ class RuntimeState:
             self._dual_layer_enabled = False
             self._chi_tracking_enabled = False
             self._reasoning_audit_enabled = False
+            self._llm_enabled = False
             return previous
 
     @property
@@ -219,6 +221,7 @@ class RuntimeState:
                 "dual_layer": self._dual_layer_enabled,
                 "chi_tracking": self._chi_tracking_enabled,
                 "reasoning_audit": self._reasoning_audit_enabled,
+                "llm": self._llm_enabled,
                 "context_stages": dict(self._context_stages),
             }
             self._latent_reasoning_enabled = False
@@ -231,6 +234,7 @@ class RuntimeState:
             self._dual_layer_enabled = False
             self._chi_tracking_enabled = False
             self._reasoning_audit_enabled = False
+            self._llm_enabled = False
             # Disable all context stages except identity and user_message
             for stage_name in self._context_stages:
                 self._context_stages[stage_name] = False
@@ -258,6 +262,7 @@ class RuntimeState:
                 self._dual_layer_enabled = bool(previous.get("dual_layer", True))
                 self._chi_tracking_enabled = bool(previous.get("chi_tracking", True))
                 self._reasoning_audit_enabled = bool(previous.get("reasoning_audit", True))
+                self._llm_enabled = bool(previous.get("llm", True))
                 # Restore context stages
                 if "context_stages" in previous:
                     self._context_stages.update(previous["context_stages"])
@@ -282,6 +287,7 @@ class RuntimeState:
             self._dual_layer_enabled = bool(states.get("dual_layer", True))
             self._chi_tracking_enabled = bool(states.get("chi_tracking", True))
             self._reasoning_audit_enabled = bool(states.get("reasoning_audit", True))
+            self._llm_enabled = bool(states.get("llm", True))
 
     def set_reasoning_mode(self, mode: str) -> dict[str, bool]:
         """Set predefined reasoning modes."""
