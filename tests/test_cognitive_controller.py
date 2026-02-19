@@ -74,6 +74,11 @@ class TestCognitiveControllerPassThrough:
         assert controller.mode == "passive"
 
     @pytest.mark.asyncio
+    async def test_active_mode_blocked(self):
+        with pytest.raises(RuntimeError, match="Active cognitive control is not yet supported"):
+            CognitiveController(enabled=True, mode="active")
+
+    @pytest.mark.asyncio
     async def test_get_state_after_process(self):
         controller = CognitiveController(enabled=True)
         await controller.process(

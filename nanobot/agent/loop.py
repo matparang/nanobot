@@ -136,11 +136,13 @@ class AgentLoop:
         self._auto_consolidate_event_threshold = int(self.memory_config.get("auto_consolidate_event_threshold", 40))
 
         cognitive_enabled = self.memory_config.get("cognitive_controller_enabled", False)
+        cognitive_mode = self.memory_config.get("cognitive_controller_mode", "passive")
         self.cognitive_controller = CognitiveController(
             observation_config=self.memory_config.get("cognitive_observation", {}),
             confidence_config=self.memory_config.get("cognitive_confidence", {}),
             working_memory_config=self.memory_config.get("cognitive_working_memory", {}),
             enabled=bool(cognitive_enabled),
+            mode=cognitive_mode,
         )
 
         # Wire memory-aware reasoning if episodic memory is enabled

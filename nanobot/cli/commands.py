@@ -6,6 +6,7 @@ import select
 import signal
 import sys
 from pathlib import Path
+from typing import Literal
 
 import typer
 from prompt_toolkit import PromptSession
@@ -388,6 +389,23 @@ def _get_memory_config(config: "Config") -> dict:
     }
 
 
+def _apply_cognitive_controller_override(
+    memory_config: dict | None,
+    cognitive_controller: Literal["off", "passive", "active"] | None,
+) -> dict:
+    """Apply CLI override for cognitive controller mode."""
+    updated = dict(memory_config or {})
+    if cognitive_controller is None:
+        return updated
+
+    if cognitive_controller == "off":
+        updated["cognitive_controller_enabled"] = False
+    else:
+        updated["cognitive_controller_enabled"] = True
+        updated["cognitive_controller_mode"] = cognitive_controller
+    return updated
+
+
 def _get_rate_limit_config(config: "Config") -> dict:
     """Extract rate limit configuration from extensions config."""
     from nanobot.config import get_extension_loader
@@ -429,6 +447,12 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
     enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
+    cognitive_controller: Literal["off", "passive", "active"] | None = typer.Option(
+        None,
+        "--cognitive-controller",
+        help="Control cognitive controller mode",
+        case_sensitive=False,
+    ),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -464,6 +488,10 @@ def gateway(
         state.llm_enabled = True
     
     state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
+    memory_config = _apply_cognitive_controller_override(
+        _get_memory_config(config),
+        cognitive_controller,
+    )
     bus = MessageBus()
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
@@ -486,7 +514,7 @@ def gateway(
         cron_service=cron,
         restrict_to_workspace=config.tools.restrict_to_workspace,
         session_manager=session_manager,
-        memory_config=_get_memory_config(config),
+        memory_config=memory_config,
         rate_limit_config=_get_rate_limit_config(config),
         telemetry_config=_get_telemetry_config(config),
         enable_latent_reasoning=config.agents.defaults.enable_latent_reasoning,
@@ -680,6 +708,12 @@ def agent(
     latent: str = typer.Option(None, "--latent", help="Enable/disable latent reasoning (on/off)"),
     disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
     enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
+    cognitive_controller: Literal["off", "passive", "active"] | None = typer.Option(
+        None,
+        "--cognitive-controller",
+        help="Control cognitive controller mode",
+        case_sensitive=False,
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -717,6 +751,11 @@ def agent(
     else:
         state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
     
+    memory_config = _apply_cognitive_controller_override(
+        _get_memory_config(config),
+        cognitive_controller,
+    )
+
     # Baseline mode always overrides
     if state.baseline_active:
         console.print("[yellow]Latent reasoning disabled: baseline mode active[/yellow]")
@@ -742,7 +781,7 @@ def agent(
         brave_api_key=config.tools.web.search.api_key or None,
         exec_config=config.tools.exec,
         restrict_to_workspace=config.tools.restrict_to_workspace,
-        memory_config=_get_memory_config(config),
+        memory_config=memory_config,
         rate_limit_config=_get_rate_limit_config(config),
         telemetry_config=_get_telemetry_config(config),
         enable_latent_reasoning=config.agents.defaults.enable_latent_reasoning,
