@@ -138,18 +138,21 @@ async def test_agent_loop_deterministic_logic_intercepts_before_llm_routing(
         agent._extract_relations_to_v2_cache = Mock(
             side_effect=lambda _: (call_order.append("extract"), 0)[1]
         )
-        agent.memory_aware_reasoner.query = Mock(
+        agent.memory_aware_reasoner.check_memory_first = Mock(
             side_effect=lambda _: (
-                call_order.append("query"),
-                SuperpositionalState(
-                    hypotheses=[
-                        Hypothesis(
-                            intent="rank_true",
-                            confidence=0.95,
-                            reasoning="Eve",
-                        )
-                    ],
-                    entropy=0.05,
+                call_order.append("check_memory_first"),
+                (
+                    True,
+                    SuperpositionalState(
+                        hypotheses=[
+                            Hypothesis(
+                                intent="rank_true",
+                                confidence=0.95,
+                                reasoning="Eve",
+                            )
+                        ],
+                        entropy=0.05,
+                    ),
                 ),
             )[1]
         )
@@ -161,8 +164,8 @@ async def test_agent_loop_deterministic_logic_intercepts_before_llm_routing(
 
         assert response is not None
         assert response == "Eve"
-        assert call_order[:2] == ["extract", "query"]
-        agent.memory_aware_reasoner.query.assert_called_once_with("Who is tallest?")
+        assert call_order[:2] == ["extract", "check_memory_first"]
+        agent.memory_aware_reasoner.check_memory_first.assert_called_once_with("Who is tallest?")
         agent.llm_adapter.chat.assert_not_awaited()
     finally:
         state.llm_enabled = previous_llm

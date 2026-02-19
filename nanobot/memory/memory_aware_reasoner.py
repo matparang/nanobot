@@ -68,6 +68,8 @@ class MemoryAwareReasoner:
                     # Expose the underlying cache for direct relation loading
                     self.cache_v2 = self.logic_memory.agent.cache
                     logger.info("LogicMemory initialized for deterministic reasoning")
+                    logger.info("LogicMemory active as primary reasoning engine")
+                    logger.info("HypothesisEngine disabled (LogicMemory takes priority)")
                 except Exception as e:
                     logger.warning(f"Failed to initialize LogicMemory: {e}")
             elif self.use_memory_v2:
@@ -196,6 +198,7 @@ class MemoryAwareReasoner:
         try:
             state = self.logic_memory.query(user_message)
             if state is not None:
+                logger.info("LogicMemory handled query deterministically")
                 logger.info(
                     f"LogicMemory answered query deterministically, bypassing LLM"
                 )
