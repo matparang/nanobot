@@ -14,6 +14,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.memory.relational_cache import RelationalCache
 from nanobot.memory.session_store import SessionStore
 
@@ -39,12 +41,31 @@ class ConsolidationPipeline:
             memory_config: Optional memory configuration dictionary
         """
         self.workspace = Path(workspace)
+        self.memory_config = memory_config or {}
+        self.use_memory_v2 = self.memory_config.get("use_memory_v2", False)
+        
         self.session_store = SessionStore(workspace)
-        self.relational_cache = RelationalCache(workspace)
+        
+        # Initialize v1 or v2 components based on flag
+        if self.use_memory_v2:
+            from nanobot.memory.relational_cache_v2 import RelationalCacheV2
+            from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
+            
+            self.relational_cache = None  # v1 cache not used
+            self.cache_v2 = RelationalCacheV2()
+            self.extractor_v2 = RelationExtractionEngineV2(
+                confidence_threshold=self.memory_config.get("confidence_threshold", 0.9)
+            )
+            logger.info("ConsolidationPipeline initialized with v2 components")
+        else:
+            self.relational_cache = RelationalCache(workspace)
+            self.cache_v2 = None
+            self.extractor_v2 = None
+        
         from nanobot.agent.memory import MemoryStore
         from nanobot.agent.memory_types import ContentType
 
-        self.memory_store = MemoryStore(workspace, memory_config or {})
+        self.memory_store = MemoryStore(workspace, self.memory_config)
         self._content_type_enum = ContentType
 
     def consolidate_session(
@@ -78,90 +99,141 @@ class ConsolidationPipeline:
             event_type = event.get("type", "")
             payload = event.get("payload", {})
 
-            # Extract patterns based on event type
-            if event_type == "interaction":
-                # User-agent interaction pattern
-                self.relational_cache.add_pattern(
-                    pattern_type="interaction",
-                    data={
-                        "user_message": payload.get("user_message", ""),
-                        "agent_response": payload.get("agent_response", ""),
-                        "timestamp": event.get("timestamp")
-                    }
-                )
-                patterns_added += 1
+            # Extract patterns based on event type (v1 only)
+            if not self.use_memory_v2:
+                if event_type == "interaction":
+                    # User-agent interaction pattern
+                    self.relational_cache.add_pattern(
+                        pattern_type="interaction",
+                        data={
+                            "user_message": payload.get("user_message", ""),
+                            "agent_response": payload.get("agent_response", ""),
+                            "timestamp": event.get("timestamp")
+                        }
+                    )
+                    patterns_added += 1
 
-            elif event_type == "reasoning":
-                # Reasoning pattern
-                self.relational_cache.add_pattern(
-                    pattern_type="reasoning",
-                    data={
-                        "hypotheses": payload.get("hypotheses", []),
-                        "entropy": payload.get("entropy", 0.0),
-                        "strategic_direction": payload.get("strategic_direction", ""),
-                        "timestamp": event.get("timestamp")
-                    }
-                )
-                patterns_added += 1
+                elif event_type == "reasoning":
+                    # Reasoning pattern
+                    self.relational_cache.add_pattern(
+                        pattern_type="reasoning",
+                        data={
+                            "hypotheses": payload.get("hypotheses", []),
+                            "entropy": payload.get("entropy", 0.0),
+                            "strategic_direction": payload.get("strategic_direction", ""),
+                            "timestamp": event.get("timestamp")
+                        }
+                    )
+                    patterns_added += 1
 
-            elif event_type == "entity_relation" and extract_entities:
+            if event_type == "entity_relation" and extract_entities:
                 # Entity relationship
                 source = payload.get("source")
                 target = payload.get("target")
                 relation_type = payload.get("relation_type")
 
                 if source and target and relation_type:
-                    self.relational_cache.add_relationship(
-                        source=source,
-                        target=target,
-                        relation_type=relation_type,
-                        properties=payload.get("properties", {})
-                    )
-                    relationships_added += 1
+                    if self.use_memory_v2:
+                        # Convert to v2 RelationType if supported
+                        from nanobot.memory.types_v2 import RelationType
+                        try:
+                            rel_type_v2 = RelationType[relation_type.upper()]
+                            self.cache_v2.add_relation(
+                                source,
+                                rel_type_v2,
+                                target,
+                                source="event"
+                            )
+                            relationships_added += 1
+                        except (KeyError, AttributeError):
+                            # Relation type not supported in v2
+                            pass
+                    else:
+                        self.relational_cache.add_relationship(
+                            source=source,
+                            target=target,
+                            relation_type=relation_type,
+                            properties=payload.get("properties", {})
+                        )
+                        relationships_added += 1
 
             elif event_type == "entity_attribute" and extract_entities:
-                # Entity attribute update
-                entity = payload.get("entity")
-                attribute = payload.get("attribute")
-                value = payload.get("value")
+                # Entity attribute update (v1 only)
+                if not self.use_memory_v2:
+                    entity = payload.get("entity")
+                    attribute = payload.get("attribute")
+                    value = payload.get("value")
 
-                if entity and attribute and value is not None:
-                    self.relational_cache.update_entity_attribute(
-                        entity=entity,
-                        attribute=attribute,
-                        value=value
-                    )
+                    if entity and attribute and value is not None:
+                        self.relational_cache.update_entity_attribute(
+                            entity=entity,
+                            attribute=attribute,
+                            value=value
+                        )
 
         # Self-healing: re-extract relations from interaction text
         relationships_reextracted = 0
         if extract_entities:
             try:
-                from nanobot.memory.relation_extractor import RelationExtractionEngine
-                from loguru import logger
                 
-                extractor = RelationExtractionEngine()
-                for event in events:
-                    if event.get("type") == "interaction":
-                        user_msg = event.get("payload", {}).get("user_message", "")
-                        if user_msg:
-                            relations = extractor.extract(user_msg)
-                            for rel in relations:
-                                # Check for duplicates before adding
-                                existing = self.relational_cache.get_entity_relationships(
-                                    rel["source"], relation_type=rel["relation_type"]
-                                )
-                                already_exists = any(
-                                    r.get("target") == rel["target"] for r in existing
-                                )
-                                if not already_exists:
-                                    self.relational_cache.add_relationship(
-                                        source=rel["source"],
-                                        target=rel["target"],
-                                        relation_type=rel["relation_type"],
-                                        properties=rel.get("properties", {})
+                if self.use_memory_v2:
+                    # Use v2 extractor with confidence gating
+                    from nanobot.memory.types_v2 import IngestionStatus
+                    
+                    for event in events:
+                        if event.get("type") == "interaction":
+                            user_msg = event.get("payload", {}).get("user_message", "")
+                            if user_msg:
+                                ingestion_result = self.extractor_v2.extract(user_msg)
+                                
+                                if ingestion_result.status == IngestionStatus.ACCEPTED:
+                                    entity_a, relation_type, entity_b = ingestion_result.relation
+                                    self.cache_v2.add_relation(
+                                        entity_a,
+                                        relation_type,
+                                        entity_b,
+                                        confidence=ingestion_result.confidence,
+                                        source="consolidation"
                                     )
                                     relationships_added += 1
                                     relationships_reextracted += 1
+                                    logger.info(
+                                        f"V2 extraction: ACCEPTED {entity_a} {relation_type.value} {entity_b} "
+                                        f"(confidence={ingestion_result.confidence:.2f})"
+                                    )
+                                elif ingestion_result.confidence > 0:
+                                    # Log low-confidence rejections
+                                    logger.info(
+                                        f"V2 extraction: REJECTED - {ingestion_result.reason} "
+                                        f"(confidence={ingestion_result.confidence:.2f})"
+                                    )
+                else:
+                    # Use v1 extractor
+                    from nanobot.memory.relation_extractor import RelationExtractionEngine
+                    
+                    extractor = RelationExtractionEngine()
+                    for event in events:
+                        if event.get("type") == "interaction":
+                            user_msg = event.get("payload", {}).get("user_message", "")
+                            if user_msg:
+                                relations = extractor.extract(user_msg)
+                                for rel in relations:
+                                    # Check for duplicates before adding
+                                    existing = self.relational_cache.get_entity_relationships(
+                                        rel["source"], relation_type=rel["relation_type"]
+                                    )
+                                    already_exists = any(
+                                        r.get("target") == rel["target"] for r in existing
+                                    )
+                                    if not already_exists:
+                                        self.relational_cache.add_relationship(
+                                            source=rel["source"],
+                                            target=rel["target"],
+                                            relation_type=rel["relation_type"],
+                                            properties=rel.get("properties", {})
+                                        )
+                                        relationships_added += 1
+                                        relationships_reextracted += 1
                 
                 if relationships_reextracted > 0:
                     logger.info(
