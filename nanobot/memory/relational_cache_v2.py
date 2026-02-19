@@ -225,6 +225,19 @@ class RelationalCacheV2:
         inverses = {
             RelationType.TALLER_THAN: RelationType.SHORTER_THAN,
             RelationType.SHORTER_THAN: RelationType.TALLER_THAN,
+            RelationType.FASTER_THAN: RelationType.SLOWER_THAN,
+            RelationType.SLOWER_THAN: RelationType.FASTER_THAN,
+            RelationType.GREATER_THAN: RelationType.LESS_THAN,
+            RelationType.LESS_THAN: RelationType.GREATER_THAN,
+            RelationType.DEPENDS_ON: RelationType.DEPENDENCY_OF,
+            RelationType.DEPENDENCY_OF: RelationType.DEPENDS_ON,
+            RelationType.IMPACTS: RelationType.IMPACTED_BY,
+            RelationType.IMPACTED_BY: RelationType.IMPACTS,
+            RelationType.CONTAINS: RelationType.CONTAINED_IN,
+            RelationType.CONTAINED_IN: RelationType.CONTAINS,
+            RelationType.SUPPLIES: RelationType.SUPPLIED_BY,
+            RelationType.SUPPLIED_BY: RelationType.SUPPLIES,
+            RelationType.RELATED_TO: RelationType.RELATED_TO,
         }
         return inverses[relation_type]
     
