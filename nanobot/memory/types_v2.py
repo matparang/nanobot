@@ -20,6 +20,22 @@ class RelationType(Enum):
     """Supported relation types for comparative reasoning."""
     TALLER_THAN = "TALLER_THAN"
     SHORTER_THAN = "SHORTER_THAN"
+    # Comparative
+    FASTER_THAN = "FASTER_THAN"
+    SLOWER_THAN = "SLOWER_THAN"
+    GREATER_THAN = "GREATER_THAN"
+    LESS_THAN = "LESS_THAN"
+    # Structural / Dependency
+    DEPENDS_ON = "DEPENDS_ON"
+    DEPENDENCY_OF = "DEPENDENCY_OF"
+    IMPACTS = "IMPACTS"
+    IMPACTED_BY = "IMPACTED_BY"
+    CONTAINS = "CONTAINS"
+    CONTAINED_IN = "CONTAINED_IN"
+    SUPPLIES = "SUPPLIES"
+    SUPPLIED_BY = "SUPPLIED_BY"
+    # Generic
+    RELATED_TO = "RELATED_TO"
 
 
 class IngestionStatus(Enum):
@@ -42,6 +58,26 @@ class QueryResult:
     message: str
     source: str
     details: Optional[dict[str, Any]] = None
+
+
+@dataclass
+class AggregateResult:
+    """Result of an aggregate reasoning query.
+
+    Attributes:
+        value: Truth value (TRUE/FALSE/UNKNOWN)
+        count: Number of entities satisfying the query
+        entities: List of entity names in the result
+        message: Human-readable explanation
+        source: Source of the result
+        details: Optional additional information
+    """
+    value: TruthValue
+    count: int
+    entities: list[str]
+    message: str
+    source: str
+    details: Optional[dict] = None
 
 
 @dataclass
