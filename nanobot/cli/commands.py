@@ -447,6 +447,8 @@ def gateway(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
     enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
+    enable_hypothesis_engine: bool = typer.Option(False, "--enable-hypothesis-engine", help="Enable HypothesisEngine (v1) reasoning", is_flag=True),
+    disable_hypothesis_engine: bool = typer.Option(False, "--disable-hypothesis-engine", help="Disable HypothesisEngine (v1) reasoning", is_flag=True),
     cognitive_controller: Literal["off", "passive", "active"] | None = typer.Option(
         None,
         "--cognitive-controller",
@@ -477,6 +479,11 @@ def gateway(
         console.print("[red]Error: --disable-llm and --enable-llm are mutually exclusive[/red]")
         raise typer.Exit(code=1)
     
+    # Handle mutually exclusive hypothesis engine flags
+    if enable_hypothesis_engine and disable_hypothesis_engine:
+        console.print("[red]Error: --enable-hypothesis-engine and --disable-hypothesis-engine are mutually exclusive[/red]")
+        raise typer.Exit(code=1)
+    
     # Set LLM enabled state from CLI flag or config default
     if disable_llm:
         state.llm_enabled = False
@@ -486,6 +493,16 @@ def gateway(
     else:
         # Default to enabled
         state.llm_enabled = True
+    
+    # Set hypothesis engine state from CLI flag or config default
+    if disable_hypothesis_engine:
+        state.hypothesis_engine_enabled = False
+        console.print("[yellow]HypothesisEngine disabled[/yellow]")
+    elif enable_hypothesis_engine:
+        state.hypothesis_engine_enabled = True
+    else:
+        memory_cfg = _get_memory_config(config)
+        state.hypothesis_engine_enabled = memory_cfg.get("hypothesis_engine_enabled", True)
     
     state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
     memory_config = _apply_cognitive_controller_override(
@@ -708,6 +725,8 @@ def agent(
     latent: str = typer.Option(None, "--latent", help="Enable/disable latent reasoning (on/off)"),
     disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
     enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
+    enable_hypothesis_engine: bool = typer.Option(False, "--enable-hypothesis-engine", help="Enable HypothesisEngine (v1) reasoning", is_flag=True),
+    disable_hypothesis_engine: bool = typer.Option(False, "--disable-hypothesis-engine", help="Disable HypothesisEngine (v1) reasoning", is_flag=True),
     cognitive_controller: Literal["off", "passive", "active"] | None = typer.Option(
         None,
         "--cognitive-controller",
@@ -729,6 +748,11 @@ def agent(
         console.print("[red]Error: --disable-llm and --enable-llm are mutually exclusive[/red]")
         raise typer.Exit(code=1)
     
+    # Handle mutually exclusive hypothesis engine flags
+    if enable_hypothesis_engine and disable_hypothesis_engine:
+        console.print("[red]Error: --enable-hypothesis-engine and --disable-hypothesis-engine are mutually exclusive[/red]")
+        raise typer.Exit(code=1)
+    
     # Set LLM enabled state from CLI flag or config default
     if disable_llm:
         state.llm_enabled = False
@@ -738,6 +762,16 @@ def agent(
     else:
         # Default to enabled (could be controlled by config in future)
         state.llm_enabled = True
+    
+    # Set hypothesis engine state from CLI flag or config default
+    if disable_hypothesis_engine:
+        state.hypothesis_engine_enabled = False
+        console.print("[yellow]HypothesisEngine disabled[/yellow]")
+    elif enable_hypothesis_engine:
+        state.hypothesis_engine_enabled = True
+    else:
+        memory_cfg = _get_memory_config(config)
+        state.hypothesis_engine_enabled = memory_cfg.get("hypothesis_engine_enabled", True)
     
     # Set latent reasoning state from CLI flag or config
     if latent:

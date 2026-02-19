@@ -159,8 +159,11 @@ class AgentLoop:
                     memory_config=self.memory_config,
                 )
 
-                # Check if LLM is disabled - use v2 deterministic reasoner
-                if not state.llm_enabled and not self.memory_aware_reasoner.use_deterministic_logic:
+                # Respect priority chain: LogicMemory > MemoryFirstReasonerV2 > HypothesisEngine
+                if self.memory_aware_reasoner.use_deterministic_logic:
+                    # LogicMemory handles routing internally - no HypothesisEngine wrapping needed
+                    logger.info("Using LogicMemory - HypothesisEngine disabled")
+                elif not state.llm_enabled and self.memory_aware_reasoner.use_memory_v2:
                     # Initialize v2 components for LLM-free operation
                     from nanobot.memory.relational_cache_v2 import RelationalCacheV2
                     from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
@@ -174,7 +177,7 @@ class AgentLoop:
                     
                     logger.info("[Nanobot] Using deterministic memory-first reasoning (v2) - LLM disabled")
                 else:
-                    # LLM enabled - use v1 with HypothesisEngine
+                    # Fall back to HypothesisEngine (v1)
                     self.latent_engine = wrap_latent_reasoner_with_memory(
                         self.latent_engine,
                         workspace=self.workspace,

@@ -86,13 +86,17 @@ class MemoryAwareReasoner:
                 except Exception as e:
                     logger.warning(f"Failed to initialize v2 reasoner: {e}")
             else:
-                # Initialize v1 components
+                # Initialize v1 components only if hypothesis engine is enabled
                 try:
-                    self.hypothesis_engine = HypothesisEngine(
-                        workspace,
-                        entropy_threshold=self.entropy_threshold
-                    )
-                    logger.info("HypothesisEngine initialized for memory-aware reasoning (v1)")
+                    from nanobot.runtime.state import state as runtime_state
+                    if runtime_state.hypothesis_engine_enabled:
+                        self.hypothesis_engine = HypothesisEngine(
+                            workspace,
+                            entropy_threshold=self.entropy_threshold
+                        )
+                        logger.info("HypothesisEngine initialized for memory-aware reasoning (v1)")
+                    else:
+                        logger.info("HypothesisEngine skipped (disabled via runtime flag)")
                 except Exception as e:
                     logger.warning(f"Failed to initialize HypothesisEngine: {e}")
 
@@ -124,7 +128,9 @@ class MemoryAwareReasoner:
         if self.use_memory_v2:
             return self._check_memory_v2(user_message)
 
-        if not self.hypothesis_engine:
+        # HypothesisEngine (v1) - only if enabled via runtime flag
+        from nanobot.runtime.state import state as runtime_state
+        if not self.hypothesis_engine or not runtime_state.hypothesis_engine_enabled:
             return False, None
 
         try:
