@@ -384,6 +384,7 @@ def _get_memory_config(config: "Config") -> dict:
         "latent_retry_max_wait": 5.0,
         "latent_retry_multiplier": 1.0,
         "importance_decay_rate": 0.01,
+        "enable_llm_fallback": True,  # Enable LLM fallback by default
     }
 
 
@@ -426,6 +427,8 @@ def _get_telemetry_config(config: "Config") -> dict:
 def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
+    enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
 ):
     """Start the nanobot gateway."""
     from nanobot.agent.loop import AgentLoop
@@ -444,6 +447,22 @@ def gateway(
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
 
     config = load_config()
+    
+    # Handle mutually exclusive LLM flags
+    if disable_llm and enable_llm:
+        console.print("[red]Error: --disable-llm and --enable-llm are mutually exclusive[/red]")
+        raise typer.Exit(code=1)
+    
+    # Set LLM enabled state from CLI flag or config default
+    if disable_llm:
+        state.llm_enabled = False
+        console.print("[yellow]LLM disabled: using memory-only deterministic mode[/yellow]")
+    elif enable_llm:
+        state.llm_enabled = True
+    else:
+        # Default to enabled
+        state.llm_enabled = True
+    
     state.latent_reasoning_enabled = config.agents.defaults.enable_latent_reasoning
     bus = MessageBus()
     provider = _make_provider(config)
@@ -659,6 +678,8 @@ def agent(
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
     latent: str = typer.Option(None, "--latent", help="Enable/disable latent reasoning (on/off)"),
+    disable_llm: bool = typer.Option(False, "--disable-llm", help="Disable all LLM calls (memory-only mode)"),
+    enable_llm: bool = typer.Option(False, "--enable-llm", help="Force enable LLM calls"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -668,6 +689,21 @@ def agent(
     from nanobot.config.loader import load_config
 
     config = load_config()
+    
+    # Handle mutually exclusive LLM flags
+    if disable_llm and enable_llm:
+        console.print("[red]Error: --disable-llm and --enable-llm are mutually exclusive[/red]")
+        raise typer.Exit(code=1)
+    
+    # Set LLM enabled state from CLI flag or config default
+    if disable_llm:
+        state.llm_enabled = False
+        console.print("[yellow]LLM disabled: using memory-only deterministic mode[/yellow]")
+    elif enable_llm:
+        state.llm_enabled = True
+    else:
+        # Default to enabled (could be controlled by config in future)
+        state.llm_enabled = True
     
     # Set latent reasoning state from CLI flag or config
     if latent:

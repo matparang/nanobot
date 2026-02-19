@@ -14,13 +14,46 @@ Add to your `config.json` in the `memory` section:
 {
   "memory": {
     "use_memory_v2": false,
-    "confidence_threshold": 0.9
+    "confidence_threshold": 0.9,
+    "enable_llm_fallback": true
   }
 }
 ```
 
 - `use_memory_v2`: Enable v2 deterministic reasoning (default: `false`)
 - `confidence_threshold`: Minimum confidence for relation extraction (default: `0.9`)
+- `enable_llm_fallback`: Allow LLM fallback when memory cannot answer (default: `true`)
+
+### LLM-Disable Mode
+
+Control LLM usage globally with CLI flags or configuration:
+
+**CLI Flags** (override config):
+```bash
+# Disable all LLM calls (memory-only mode)
+nanobot agent --disable-llm
+
+# Force enable LLM calls
+nanobot agent --enable-llm
+
+# Gateway also supports these flags
+nanobot gateway --disable-llm
+```
+
+**Config Setting**:
+```json
+{
+  "memory": {
+    "enable_llm_fallback": false  // Disable LLM fallback globally
+  }
+}
+```
+
+**When LLM is disabled:**
+- No LLM provider initialization or API calls
+- Memory-first reasoning only
+- Returns deterministic UNKNOWN when memory cannot answer
+- Useful for offline operation, cost control, or privacy
 
 ## Architecture
 
@@ -28,7 +61,9 @@ Add to your `config.json` in the `memory` section:
 ```
 User Query → MemoryAwareReasoner → HypothesisEngine → RelationalCache (v1)
                                  ↓
-                            Entropy Check → LLM Fallback (if needed)
+                            Entropy Check → LLM Fallback (if LLM enabled)
+                                         ↓
+                                    UNKNOWN (if LLM disabled)
 ```
 
 ### V2 Mode (Enabled)
