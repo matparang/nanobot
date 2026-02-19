@@ -5,6 +5,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
+from nanobot.cli import commands
 from nanobot.cli.commands import app
 from nanobot.runtime.state import state
 
@@ -221,3 +222,41 @@ def test_state_commands_inspect_and_clear(tmp_path):
         clear_result = runner.invoke(app, ["state", "clear", "als", "--dry-run", "--force"])
         assert clear_result.exit_code == 0
         assert "Would clear" in clear_result.stdout
+
+
+def test_apply_cognitive_controller_override_off():
+    memory_config = {}
+    result = commands._apply_cognitive_controller_override(memory_config, "off")
+    assert result["cognitive_controller_enabled"] is False
+    assert "cognitive_controller_mode" not in result
+    assert memory_config == {}
+
+
+def test_apply_cognitive_controller_override_passive():
+    memory_config = {}
+    result = commands._apply_cognitive_controller_override(memory_config, "passive")
+    assert result["cognitive_controller_enabled"] is True
+    assert result["cognitive_controller_mode"] == "passive"
+    assert memory_config == {}
+
+
+def test_apply_cognitive_controller_override_active():
+    memory_config = {}
+    result = commands._apply_cognitive_controller_override(memory_config, "active")
+    assert result["cognitive_controller_enabled"] is True
+    assert result["cognitive_controller_mode"] == "active"
+    assert memory_config == {}
+
+
+def test_apply_cognitive_controller_override_none():
+    memory_config = {"keep": True}
+    result = commands._apply_cognitive_controller_override(memory_config, None)
+    assert result == {"keep": True}
+    assert memory_config == {"keep": True}
+
+
+def test_apply_cognitive_controller_override_none_preserves_existing_keys():
+    memory_config = {"keep": True, "cognitive_controller_enabled": False}
+    result = commands._apply_cognitive_controller_override(memory_config, None)
+    assert result == {"keep": True, "cognitive_controller_enabled": False}
+    assert memory_config == {"keep": True, "cognitive_controller_enabled": False}
