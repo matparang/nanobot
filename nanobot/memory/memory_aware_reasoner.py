@@ -29,6 +29,8 @@ class MemoryAwareReasoner:
         use_memory_v2: Flag to enable v2 memory-first reasoning
         reasoner_v2: MemoryFirstReasonerV2 instance (v2)
         cache_v2: RelationalCacheV2 instance (v2)
+        use_deterministic_logic: Flag to enable deterministic LogicMemory
+        logic_memory: LogicMemory instance (deterministic)
     """
 
     def __init__(
@@ -47,21 +49,34 @@ class MemoryAwareReasoner:
             self.memory_config.get("clarify_entropy_threshold", 0.8)
         )
         self.use_memory_v2 = self.memory_config.get("use_memory_v2", False)
+        self.use_deterministic_logic = self.memory_config.get("deterministic_logic", False)
 
         # Only initialize if workspace is provided
         self.hypothesis_engine = None
         self.reasoner_v2 = None
         self.cache_v2 = None
         self.deterministic_agent = None
-        
+        self.logic_memory = None
+
         if workspace:
-            if self.use_memory_v2:
+            if self.use_deterministic_logic:
+                # Initialize LogicMemory (deterministic, highest-priority path)
+                try:
+                    from nanobot.memory.logic_memory import LogicMemory
+
+                    self.logic_memory = LogicMemory(workspace=workspace)
+                    # Expose the underlying cache for direct relation loading
+                    self.cache_v2 = self.logic_memory.agent.cache
+                    logger.info("LogicMemory initialized for deterministic reasoning")
+                except Exception as e:
+                    logger.warning(f"Failed to initialize LogicMemory: {e}")
+            elif self.use_memory_v2:
                 # Initialize v2 components
                 try:
                     from nanobot.memory.relational_cache_v2 import RelationalCacheV2
                     from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
                     from nanobot.memory.deterministic_agent import DeterministicReasoningAgent
-                    
+
                     self.cache_v2 = RelationalCacheV2()
                     self.reasoner_v2 = MemoryFirstReasonerV2(cache=self.cache_v2)
                     self.deterministic_agent = DeterministicReasoningAgent(cache=self.cache_v2)
@@ -86,18 +101,27 @@ class MemoryAwareReasoner:
     ) -> tuple[bool, Optional[SuperpositionalState]]:
         """Check if hypothesis engine can answer the query.
 
+        Priority order:
+        1. LogicMemory (deterministic_logic=True) — full DRA routing
+        2. MemoryFirstReasonerV2 (use_memory_v2=True) — basic superlative/pairwise
+        3. HypothesisEngine (v1) — entropy-gated graph traversal
+
         Args:
             user_message: User's input message
             max_hypotheses: Maximum hypotheses to generate
 
         Returns:
             Tuple of (can_answer, state) where:
-            - can_answer: True if entropy is below threshold or v2 can answer deterministically
+            - can_answer: True if entropy is below threshold or v2/logic can answer deterministically
             - state: SuperpositionalState if can answer, None otherwise
         """
+        # Highest priority: deterministic LogicMemory
+        if self.use_deterministic_logic:
+            return self._check_logic_memory(user_message)
+
         if self.use_memory_v2:
             return self._check_memory_v2(user_message)
-        
+
         if not self.hypothesis_engine:
             return False, None
 
@@ -144,6 +168,32 @@ class MemoryAwareReasoner:
             logger.warning(f"Error checking memory cache: {e}")
             return False, None
     
+    def _check_logic_memory(self, user_message: str) -> tuple[bool, Optional[SuperpositionalState]]:
+        """Check if the deterministic LogicMemory module can answer the query.
+
+        Args:
+            user_message: User's input message
+
+        Returns:
+            Tuple of (can_answer, state) where can_answer is True if LogicMemory
+            returned a definitive answer
+        """
+        if not self.logic_memory:
+            return False, None
+
+        try:
+            state = self.logic_memory.query(user_message)
+            if state is not None:
+                logger.info(
+                    f"LogicMemory answered query deterministically, bypassing LLM"
+                )
+                return True, state
+            logger.debug("LogicMemory: no deterministic answer for query")
+            return False, None
+        except Exception as e:
+            logger.warning(f"Error in LogicMemory query: {e}")
+            return False, None
+
     def _check_memory_v2(self, user_message: str) -> tuple[bool, Optional[SuperpositionalState]]:
         """Check if v2 memory-first reasoner can answer the query.
         
