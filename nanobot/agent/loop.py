@@ -137,22 +137,40 @@ class AgentLoop:
         # Wire memory-aware reasoning if episodic memory is enabled
         if self._episodic_enabled:
             try:
-                from nanobot.memory.memory_aware_reasoner import wrap_latent_reasoner_with_memory
+                from nanobot.runtime.state import state
                 
-                self.latent_engine = wrap_latent_reasoner_with_memory(
-                    self.latent_engine,
-                    workspace=self.workspace,
-                    memory_config=self.memory_config,
-                )
-                
-                # Also wrap the dual reasoner's latent reasoner
-                self.dual_reasoner.latent_reasoner = wrap_latent_reasoner_with_memory(
-                    self.dual_reasoner.latent_reasoner,
-                    workspace=self.workspace,
-                    memory_config=self.memory_config,
-                )
-                
-                logger.info("Memory-aware reasoning enabled (LatentReasoner wrapped with HypothesisEngine)")
+                # Check if LLM is disabled - use v2 deterministic reasoner
+                if not state.llm_enabled:
+                    # Initialize v2 components for LLM-free operation
+                    from nanobot.memory.relational_cache_v2 import RelationalCacheV2
+                    from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
+                    
+                    # Create singleton cache and reasoner
+                    relational_cache_v2 = RelationalCacheV2()
+                    self.reasoner = MemoryFirstReasonerV2(cache=relational_cache_v2)
+                    
+                    # Store for ingestion pipeline
+                    self.relational_cache_v2 = relational_cache_v2
+                    
+                    logger.info("[Nanobot] Using deterministic memory-first reasoning (v2) - LLM disabled")
+                else:
+                    # LLM enabled - use v1 with HypothesisEngine
+                    from nanobot.memory.memory_aware_reasoner import wrap_latent_reasoner_with_memory
+                    
+                    self.latent_engine = wrap_latent_reasoner_with_memory(
+                        self.latent_engine,
+                        workspace=self.workspace,
+                        memory_config=self.memory_config,
+                    )
+                    
+                    # Also wrap the dual reasoner's latent reasoner
+                    self.dual_reasoner.latent_reasoner = wrap_latent_reasoner_with_memory(
+                        self.dual_reasoner.latent_reasoner,
+                        workspace=self.workspace,
+                        memory_config=self.memory_config,
+                    )
+                    
+                    logger.info("Memory-aware reasoning enabled (LatentReasoner wrapped with HypothesisEngine)")
             except Exception as e:
                 logger.warning(f"Failed to enable memory-aware reasoning (non-fatal): {e}")
 
@@ -293,6 +311,80 @@ class AgentLoop:
             self._consolidation_task.cancel()
         logger.info("Agent loop stopping")
 
+    def _try_v2_reasoning(self, query: str) -> str | None:
+        """
+        Try to answer a query using v2 memory-first reasoner.
+        
+        Returns:
+            Answer string if v2 can answer, None otherwise
+        """
+        if not hasattr(self, 'reasoner') or not self.reasoner:
+            return None
+            
+        try:
+            from nanobot.memory.types_v2 import TruthValue, RelationType
+            import re
+            
+            # Parse comparative queries: "Who is taller, X or Y?"
+            # Pattern 1: "Who is taller, X or Y?"
+            match = re.search(r'who\s+is\s+(taller|shorter)\s*,?\s+(\w+)\s+or\s+(\w+)', query, re.IGNORECASE)
+            if match:
+                relation_word = match.group(1).lower()
+                entity_a = match.group(2)
+                entity_b = match.group(3)
+                
+                relation_type = RelationType.TALLER_THAN if relation_word == "taller" else RelationType.SHORTER_THAN
+                
+                # Query both directions
+                result_ab = self.reasoner.query_pairwise(entity_a, entity_b, relation_type)
+                result_ba = self.reasoner.query_pairwise(entity_b, entity_a, relation_type)
+                
+                if result_ab.value == TruthValue.TRUE:
+                    return f"{entity_a} is {relation_word} than {entity_b}"
+                elif result_ba.value == TruthValue.TRUE:
+                    return f"{entity_b} is {relation_word} than {entity_a}"
+                elif result_ab.value == TruthValue.FALSE:
+                    # If A is not taller than B, then B is taller than A
+                    opposite_word = "shorter" if relation_word == "taller" else "taller"
+                    return f"{entity_b} is {opposite_word} than {entity_a}"
+                else:
+                    return None  # UNKNOWN
+            
+            # Pattern 2: "Is X taller than Y?"
+            match = re.search(r'is\s+(\w+)\s+(taller|shorter)\s+than\s+(\w+)', query, re.IGNORECASE)
+            if match:
+                entity_a = match.group(1)
+                relation_word = match.group(2).lower()
+                entity_b = match.group(3)
+                
+                relation_type = RelationType.TALLER_THAN if relation_word == "taller" else RelationType.SHORTER_THAN
+                result = self.reasoner.query_pairwise(entity_a, entity_b, relation_type)
+                
+                if result.value == TruthValue.TRUE:
+                    return f"Yes, {entity_a} is {relation_word} than {entity_b}"
+                elif result.value == TruthValue.FALSE:
+                    return f"No, {entity_a} is not {relation_word} than {entity_b}"
+                else:
+                    return None  # UNKNOWN
+            
+            # Pattern 3: Superlative queries "Who is tallest/shortest?"
+            match = re.search(r'who\s+is\s+(tallest|shortest)', query, re.IGNORECASE)
+            if match:
+                kind = match.group(1).lower()
+                result = self.reasoner.query_superlative(kind)
+                
+                if result.value == TruthValue.TRUE:
+                    return result.message
+                else:
+                    return None  # UNKNOWN
+            
+            # No pattern matched
+            return None
+            
+        except Exception as e:
+            logger.warning(f"V2 reasoning error: {e}")
+            return None
+
     def _get_or_create_episodic_session_id(self, session) -> str:
         """
         Deterministic per-session-key episodic session id, stored in Session.metadata.
@@ -387,6 +479,31 @@ class AgentLoop:
                     session_store=self.episodic_store,
                     session_id=episodic_session_id,
                 )
+                
+                # Also feed v2 cache if it exists
+                if hasattr(self, 'relational_cache_v2') and self.relational_cache_v2:
+                    try:
+                        from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
+                        from nanobot.memory.types_v2 import IngestionStatus
+                        
+                        extractor_v2 = RelationExtractionEngineV2()
+                        # Process each sentence/line separately for better extraction
+                        lines = msg.content.split('\n')
+                        extracted_v2_count = 0
+                        for line in lines:
+                            result = extractor_v2.extract(line.strip())
+                            if result.status == IngestionStatus.ACCEPTED and result.relation:
+                                a, relation_type, b = result.relation
+                                self.relational_cache_v2.add_relation(
+                                    a, relation_type, b,
+                                    confidence=result.confidence, source="user_input"
+                                )
+                                extracted_v2_count += 1
+                        if extracted_v2_count > 0:
+                            logger.debug(f"Fed {extracted_v2_count} relations to v2 cache")
+                    except Exception as e:
+                        logger.warning(f"V2 relation extraction failed (non-fatal): {e}")
+                
                 if extracted_count > 0:
                     logger.info(f"Eager relation extraction: {extracted_count} relations from user message")
             except Exception as e:
@@ -573,6 +690,17 @@ class AgentLoop:
 
         while iteration < self.max_iterations:
             iteration += 1
+
+            # Check if v2 reasoner can answer the query (when LLM is disabled)
+            if hasattr(self, 'reasoner') and self.reasoner and not state.llm_enabled:
+                try:
+                    v2_answer = self._try_v2_reasoning(msg.content)
+                    if v2_answer:
+                        logger.info(f"[Nanobot] V2 reasoner provided answer: {v2_answer}")
+                        final_content = v2_answer
+                        break
+                except Exception as e:
+                    logger.warning(f"V2 reasoning attempt failed (non-fatal): {e}")
 
             # [Nanobot] routing decision - log before calling LLM
             logger.info(f"[Nanobot] Routing decision: calling LLM adapter (iteration {iteration}/{self.max_iterations})")
