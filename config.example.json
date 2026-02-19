@@ -182,7 +182,7 @@
     "latentRetryMinWait": 1.0,
     "latentRetryMaxWait": 5.0,
     "latentRetryMultiplier": 1.0,
-    "useMemoryV2": false,
-    "confidenceThreshold": 0.9
+    "use_memory_v2": false,
+    "confidence_threshold": 0.9
   }
 }

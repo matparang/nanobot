@@ -48,13 +48,12 @@ class ConsolidationPipeline:
         if self.use_memory_v2:
             from nanobot.memory.relational_cache_v2 import RelationalCacheV2
             from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
-            from nanobot.memory.config_v2 import CONF_THRESHOLD
             from loguru import logger
             
             self.relational_cache = None  # v1 cache not used
             self.cache_v2 = RelationalCacheV2()
             self.extractor_v2 = RelationExtractionEngineV2(
-                confidence_threshold=self.memory_config.get("confidence_threshold", CONF_THRESHOLD)
+                confidence_threshold=self.memory_config.get("confidence_threshold", 0.9)
             )
             logger.info("ConsolidationPipeline initialized with v2 components")
         else:

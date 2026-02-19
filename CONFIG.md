@@ -124,8 +124,8 @@ Configure the Fractal Memory system and Active Learning State (ALS):
     "latentRetryMinWait": 1.0,
     "latentRetryMaxWait": 5.0,
     "latentRetryMultiplier": 1.0,
-    "useMemoryV2": false,
-    "confidenceThreshold": 0.9
+    "use_memory_v2": false,
+    "confidence_threshold": 0.9
   }
 }
 ```
@@ -138,10 +138,10 @@ Configure the Fractal Memory system and Active Learning State (ALS):
 - `alsEnabled`: Enable Active Learning State tracking
 
 **V2 Memory-First Reasoning (Experimental):**
-- `useMemoryV2`: Enable deterministic v2 memory-first reasoning (default: `false`)
-- `confidenceThreshold`: Minimum confidence for relation extraction in v2 mode (default: `0.9`)
+- `use_memory_v2`: Enable deterministic v2 memory-first reasoning (default: `false`)
+- `confidence_threshold`: Minimum confidence for relation extraction in v2 mode (default: `0.9`)
 
-When `useMemoryV2` is enabled:
+When `use_memory_v2` is enabled:
 - Queries are answered deterministically from the relational memory graph (no LLM fallback)
 - Relation extraction uses confidence-gating (only accepts relations with confidence ≥ threshold)
 - Returns `UNKNOWN` for ambiguous queries, self-comparisons, and incomplete information
@@ -149,7 +149,7 @@ When `useMemoryV2` is enabled:
 - Automatically stores inverse relations and performs cycle detection
 - Tiered ranking for partial orderings
 
-When `useMemoryV2` is disabled (default):
+When `use_memory_v2` is disabled (default):
 - Uses v1 hypothesis engine with entropy-based LLM fallback
 - Supports broader query types with probabilistic reasoning
 

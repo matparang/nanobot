@@ -80,7 +80,7 @@ class MemoryAwareReasoner:
         self,
         user_message: str,
         max_hypotheses: int = 3
-    ) -> tuple[bool, SuperpositionalState | None]:
+    ) -> tuple[bool, Optional[SuperpositionalState]]:
         """Check if hypothesis engine can answer the query.
 
         Args:
@@ -141,7 +141,7 @@ class MemoryAwareReasoner:
             logger.warning(f"Error checking memory cache: {e}")
             return False, None
     
-    def _check_memory_v2(self, user_message: str) -> tuple[bool, SuperpositionalState | None]:
+    def _check_memory_v2(self, user_message: str) -> tuple[bool, Optional[SuperpositionalState]]:
         """Check if v2 memory-first reasoner can answer the query.
         
         Args:
@@ -160,26 +160,25 @@ class MemoryAwareReasoner:
             query_lower = user_message.lower()
             
             # Check for superlative queries
-            if "tallest" in query_lower or "who is taller" in query_lower:
-                if "tallest" in query_lower:
-                    result = self.reasoner_v2.query_superlative("tallest")
-                    if result.value == TruthValue.TRUE:
-                        hypothesis = Hypothesis(
-                            intent="superlative_tallest",
-                            confidence=0.95,
-                            reasoning=result.message
-                        )
-                        state = SuperpositionalState(
-                            hypotheses=[hypothesis],
-                            entropy=0.1,
-                            strategic_direction=f"Deterministic v2 answer: {result.message}"
-                        )
-                        logger.info(f"V2 cache hit for superlative query: {result.message}")
-                        return True, state
-                    elif result.value == TruthValue.UNKNOWN:
-                        # Log UNKNOWN outcome
-                        logger.info(f"V2 superlative query returned UNKNOWN: {result.message}")
-                        return False, None
+            if "tallest" in query_lower:
+                result = self.reasoner_v2.query_superlative("tallest")
+                if result.value == TruthValue.TRUE:
+                    hypothesis = Hypothesis(
+                        intent="superlative_tallest",
+                        confidence=0.95,
+                        reasoning=result.message
+                    )
+                    state = SuperpositionalState(
+                        hypotheses=[hypothesis],
+                        entropy=0.1,
+                        strategic_direction=f"Deterministic v2 answer: {result.message}"
+                    )
+                    logger.info(f"V2 cache hit for superlative query: {result.message}")
+                    return True, state
+                elif result.value == TruthValue.UNKNOWN:
+                    # Log UNKNOWN outcome
+                    logger.info(f"V2 superlative query returned UNKNOWN: {result.message}")
+                    return False, None
             
             elif "shortest" in query_lower:
                 result = self.reasoner_v2.query_superlative("shortest")
