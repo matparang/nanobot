@@ -155,10 +155,6 @@ class NanobotBeliefEngine:
                 is_inverse=True,
             )
             self._store(inv_fact)
-        elif inv_pred == predicate:
-            # Symmetric relation (e.g. RELATED_TO) — already stored as direct
-            pass
-
         return self._detect_and_resolve_cycle(predicate, fact)
 
     def delete_fact(
