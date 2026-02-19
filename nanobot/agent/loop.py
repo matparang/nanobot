@@ -869,6 +869,7 @@ class AgentLoop:
 Respond with ONLY valid JSON, no markdown fences."""
 
         try:
+            # Attempt LLM call for memory consolidation
             response = await self.llm_adapter.chat(
                 messages=[
                     {"role": "system", "content": "You are a memory consolidation agent. Respond only with valid JSON."},
@@ -881,6 +882,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             logger.warning("[Nanobot] Memory consolidation skipped: LLM disabled")
             return
         
+        # Parse and apply the consolidation response
         try:
             text = (response.content or "").strip()
             if text.startswith("```"):

@@ -91,8 +91,9 @@ class LLMAdapter:
             )
             
             logger.info(f"[LLM Adapter] LLM call completed (finish_reason={response.finish_reason})")
+            tool_call_count = len(response.tool_calls) if response.tool_calls else 0
             logger.debug(f"[LLM Adapter] Response details: content_length={len(response.content) if response.content else 0}, "
-                        f"tool_calls={len(response.tool_calls)}")
+                        f"tool_calls={tool_call_count}")
             
             return response
             

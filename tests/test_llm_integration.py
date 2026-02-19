@@ -62,7 +62,13 @@ async def test_agent_loop_with_llm_enabled(mock_provider, temp_workspace):
 
 @pytest.mark.asyncio
 async def test_agent_loop_with_llm_disabled(mock_provider, temp_workspace):
-    """Test that AgentLoop handles LLM disabled gracefully."""
+    """Test that AgentLoop handles LLM disabled gracefully.
+    
+    Note: Internal components (light_reasoner, dual_reasoner, etc.) may still
+    attempt to call the provider for their own heuristics, but these calls will
+    also be blocked by the hard block in LiteLLMProvider. The main agent loop
+    correctly handles the LLM denial and returns an appropriate error message.
+    """
     state.llm_enabled = False
     
     bus = MessageBus()
@@ -79,8 +85,6 @@ async def test_agent_loop_with_llm_disabled(mock_provider, temp_workspace):
     assert response is not None
     assert "Memory-Only Mode" in response
     assert "LLM access is currently disabled" in response
-    # Note: Internal components (light_reasoner, etc.) may still call provider
-    # but the main agent loop should handle the denial correctly
 
 
 @pytest.mark.asyncio
