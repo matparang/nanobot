@@ -407,7 +407,8 @@ class AgentLoop:
         """
         # [CLI] received prompt - log the incoming message
         logger.info(f"[CLI] Received prompt from {msg.channel}:{msg.sender_id}")
-        logger.debug(f"[CLI] Message content: {msg.content[:100]}...")
+        content_preview = str(msg.content)[:100] if msg.content else ""
+        logger.debug(f"[CLI] Message content: {content_preview}...")
         
         # Handle system messages (subagent announces)
         # The chat_id contains the original "channel:chat_id" to route back to
