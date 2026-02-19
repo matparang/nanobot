@@ -25,6 +25,7 @@ from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config import settings
+from nanobot.llm_adapter import LLMAdapter, LLMAccessDeniedError
 from nanobot.middleware.rate_limiter import RateLimitConfig, RateLimiter
 from nanobot.providers.base import LLMProvider
 from nanobot.runtime.chi_tracker import ChiTracker
@@ -75,7 +76,9 @@ class AgentLoop:
     ):
         from nanobot.config.schema import ExecToolConfig
         self.bus = bus
-        self.provider = provider
+        # Wrap provider with LLM adapter for enforcement
+        self.llm_adapter = LLMAdapter(provider)
+        self.provider = provider  # Keep reference for backward compatibility
         self.workspace = workspace
         self.model = model or provider.get_default_model()
         self.max_iterations = max_iterations
@@ -402,13 +405,18 @@ class AgentLoop:
         Returns:
             The response message, or None if no response needed.
         """
+        # [CLI] received prompt - log the incoming message
+        logger.info(f"[CLI] Received prompt from {msg.channel}:{msg.sender_id}")
+        content_preview = str(msg.content)[:100] if msg.content else ""
+        logger.debug(f"[CLI] Message content: {content_preview}...")
+        
         # Handle system messages (subagent announces)
         # The chat_id contains the original "channel:chat_id" to route back to
         if msg.channel == "system":
             return await self._process_system_message(msg)
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-        logger.info(f"Processing message from {msg.channel}:{msg.sender_id}: {preview}")
+        logger.info(f"[Nanobot] Processing message from {msg.channel}:{msg.sender_id}: {preview}")
         rate_limit_key = f"{msg.channel}:{msg.chat_id}"
         if not await self.rate_limiter.is_allowed(rate_limit_key):
             return OutboundMessage(
@@ -566,13 +574,31 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
-            # Call LLM
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model,
-                temperature=self.temperature
-            )
+            # [Nanobot] routing decision - log before calling LLM
+            logger.info(f"[Nanobot] Routing decision: calling LLM adapter (iteration {iteration}/{self.max_iterations})")
+            logger.debug(f"[Nanobot] LLM enabled: {state.llm_enabled}, Model: {self.model}")
+            
+            try:
+                # Call LLM through adapter (enforces global LLM_ENABLED flag)
+                response = await self.llm_adapter.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
+                    model=self.model,
+                    temperature=self.temperature
+                )
+            except LLMAccessDeniedError as e:
+                # LLM is disabled - return deterministic response
+                logger.warning(f"[Nanobot] LLM access denied: {str(e)}")
+                return OutboundMessage(
+                    channel=msg.channel,
+                    chat_id=msg.chat_id,
+                    content=(
+                        "🤖 Nanobot (Memory-Only Mode)\n\n"
+                        "LLM access is currently disabled. Operating in deterministic memory-only mode.\n"
+                        f"To enable LLM, use the --enable-llm flag or enable it through configuration."
+                    ),
+                    metadata=msg.metadata or {},
+                )
 
             # Handle tool calls
             if response.has_tool_calls:
@@ -741,12 +767,17 @@ class AgentLoop:
         while iteration < self.max_iterations:
             iteration += 1
 
-            response = await self.provider.chat(
-                messages=messages,
-                tools=self.tools.get_definitions(),
-                model=self.model,
-                temperature=self.temperature
-            )
+            try:
+                response = await self.llm_adapter.chat(
+                    messages=messages,
+                    tools=self.tools.get_definitions(),
+                    model=self.model,
+                    temperature=self.temperature
+                )
+            except LLMAccessDeniedError:
+                # LLM disabled - cannot process system message
+                logger.warning("[Nanobot] Cannot process system message: LLM disabled")
+                return None
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -838,13 +869,21 @@ class AgentLoop:
 Respond with ONLY valid JSON, no markdown fences."""
 
         try:
-            response = await self.provider.chat(
+            # Attempt LLM call for memory consolidation
+            response = await self.llm_adapter.chat(
                 messages=[
                     {"role": "system", "content": "You are a memory consolidation agent. Respond only with valid JSON."},
                     {"role": "user", "content": prompt},
                 ],
                 model=self.model,
             )
+        except LLMAccessDeniedError:
+            # LLM disabled - skip consolidation
+            logger.warning("[Nanobot] Memory consolidation skipped: LLM disabled")
+            return
+        
+        # Parse and apply the consolidation response
+        try:
             text = (response.content or "").strip()
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()

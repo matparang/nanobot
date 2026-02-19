@@ -146,6 +146,26 @@ class LiteLLMProvider(LLMProvider):
         Returns:
             LLMResponse with content and/or tool calls.
         """
+        # HARD BLOCK: Check global LLM enabled state
+        # This is a secondary enforcement layer - primary is in LLMAdapter
+        from nanobot.runtime.state import state
+        from loguru import logger
+        
+        if not state.llm_enabled:
+            error_msg = (
+                "HARD BLOCK: Direct LLM provider access denied. "
+                "LLM calls are globally disabled. "
+                "All LLM access must go through LLMAdapter. "
+                "Use --enable-llm flag or enable LLM through configuration."
+            )
+            logger.error(f"[LiteLLM Provider] {error_msg}")
+            return LLMResponse(
+                content=f"Error: {error_msg}",
+                finish_reason="error",
+            )
+        
+        logger.info(f"[LiteLLM Provider] Processing chat request (model={model or self.default_model})")
+        
         model = self._resolve_model(model or self.default_model)
         prepared_messages = copy.deepcopy(messages)
 
