@@ -26,6 +26,8 @@ class RuntimeState:
                 cls._instance._suspended_services = set()
                 cls._instance._llm_enabled = True  # LLM enabled by default
                 cls._instance._hypothesis_engine_enabled = True  # HypothesisEngine enabled by default
+                cls._instance._deterministic_logic_enabled = False
+                cls._instance._use_memory_v2 = False
                 # Context stage registry - all enabled by default for backward compatibility
                 cls._instance._context_stages = {
                     "identity": True,
@@ -162,6 +164,26 @@ class RuntimeState:
         with self._lock:
             self._hypothesis_engine_enabled = bool(enabled)
 
+    @property
+    def deterministic_logic_enabled(self) -> bool:
+        with self._lock:
+            return self._deterministic_logic_enabled
+
+    @deterministic_logic_enabled.setter
+    def deterministic_logic_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._deterministic_logic_enabled = bool(enabled)
+
+    @property
+    def use_memory_v2(self) -> bool:
+        with self._lock:
+            return self._use_memory_v2
+
+    @use_memory_v2.setter
+    def use_memory_v2(self, enabled: bool) -> None:
+        with self._lock:
+            self._use_memory_v2 = bool(enabled)
+
     def get_all_toggles(self) -> dict[str, bool]:
         """Return all runtime toggle values keyed by stable CLI-friendly names."""
         with self._lock:
@@ -178,6 +200,8 @@ class RuntimeState:
                 "reasoning_audit": self._reasoning_audit_enabled,
                 "llm": self._llm_enabled,
                 "hypothesis_engine": self._hypothesis_engine_enabled,
+                "deterministic_logic": self._deterministic_logic_enabled,
+                "memory_v2": self._use_memory_v2,
             }
 
     def set_baseline_mode(self) -> dict[str, bool]:
@@ -195,6 +219,8 @@ class RuntimeState:
                 "reasoning_audit": self._reasoning_audit_enabled,
                 "llm": self._llm_enabled,
                 "hypothesis_engine": self._hypothesis_engine_enabled,
+                "deterministic_logic": self._deterministic_logic_enabled,
+                "memory_v2": self._use_memory_v2,
             }
             self._latent_reasoning_enabled = False
             self._mem0_enabled = False
@@ -208,6 +234,8 @@ class RuntimeState:
             self._reasoning_audit_enabled = False
             self._llm_enabled = False
             self._hypothesis_engine_enabled = False
+            self._deterministic_logic_enabled = False
+            self._use_memory_v2 = False
             return previous
 
     @property
@@ -237,6 +265,8 @@ class RuntimeState:
                 "reasoning_audit": self._reasoning_audit_enabled,
                 "llm": self._llm_enabled,
                 "hypothesis_engine": self._hypothesis_engine_enabled,
+                "deterministic_logic": self._deterministic_logic_enabled,
+                "memory_v2": self._use_memory_v2,
                 "context_stages": dict(self._context_stages),
             }
             self._latent_reasoning_enabled = False
@@ -251,6 +281,8 @@ class RuntimeState:
             self._reasoning_audit_enabled = False
             self._llm_enabled = False
             self._hypothesis_engine_enabled = False
+            self._deterministic_logic_enabled = False
+            self._use_memory_v2 = False
             # Disable all context stages except identity and user_message
             for stage_name in self._context_stages:
                 self._context_stages[stage_name] = False
@@ -280,6 +312,8 @@ class RuntimeState:
                 self._reasoning_audit_enabled = bool(previous.get("reasoning_audit", True))
                 self._llm_enabled = bool(previous.get("llm", True))
                 self._hypothesis_engine_enabled = bool(previous.get("hypothesis_engine", True))
+                self._deterministic_logic_enabled = bool(previous.get("deterministic_logic", False))
+                self._use_memory_v2 = bool(previous.get("memory_v2", False))
                 # Restore context stages
                 if "context_stages" in previous:
                     self._context_stages.update(previous["context_stages"])
@@ -306,6 +340,8 @@ class RuntimeState:
             self._reasoning_audit_enabled = bool(states.get("reasoning_audit", True))
             self._llm_enabled = bool(states.get("llm", True))
             self._hypothesis_engine_enabled = bool(states.get("hypothesis_engine", True))
+            self._deterministic_logic_enabled = bool(states.get("deterministic_logic", False))
+            self._use_memory_v2 = bool(states.get("memory_v2", False))
 
     def set_reasoning_mode(self, mode: str) -> dict[str, bool]:
         """Set predefined reasoning modes."""
