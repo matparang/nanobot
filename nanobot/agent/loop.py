@@ -715,8 +715,55 @@ class AgentLoop:
                     temperature=self.temperature
                 )
             except LLMAccessDeniedError as e:
-                # LLM is disabled - return deterministic response
+                # LLM is disabled - but still extract relations if v2 is active
                 logger.warning(f"[Nanobot] LLM access denied: {str(e)}")
+                
+                # Extract relations from user message if v2 is active
+                if hasattr(self, 'relational_cache_v2') and self.relational_cache_v2:
+                    try:
+                        from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
+                        from nanobot.memory.types_v2 import IngestionStatus
+                        
+                        extractor_v2 = RelationExtractionEngineV2()
+                        lines = msg.content.split('\n')
+                        extracted_v2_count = 0
+                        for line in lines:
+                            result = extractor_v2.extract(line.strip())
+                            if result.status == IngestionStatus.ACCEPTED and result.relation:
+                                a, relation_type, b = result.relation
+                                self.relational_cache_v2.add_relation(
+                                    a, relation_type, b,
+                                    confidence=result.confidence, source="user_input"
+                                )
+                                extracted_v2_count += 1
+                        if extracted_v2_count > 0:
+                            logger.info(f"Extracted {extracted_v2_count} relations to v2 cache (LLM disabled)")
+                    except Exception as ex:
+                        logger.warning(f"V2 relation extraction in LLM-denied path failed: {ex}")
+                
+                # Try v2 reasoning one more time after extraction
+                v2_answer = None
+                if hasattr(self, 'reasoner') and self.reasoner:
+                    try:
+                        v2_answer = self._try_v2_reasoning(msg.content)
+                    except Exception as ex:
+                        logger.warning(f"V2 reasoning after extraction failed: {ex}")
+                
+                if v2_answer:
+                    final_content = v2_answer
+                    # Save to session
+                    session.add_message("user", msg.content)
+                    session.add_message("assistant", final_content)
+                    self.sessions.save(session)
+                    
+                    return OutboundMessage(
+                        channel=msg.channel,
+                        chat_id=msg.chat_id,
+                        content=final_content,
+                        metadata=msg.metadata or {},
+                    )
+                
+                # No v2 answer available - return generic message
                 return OutboundMessage(
                     channel=msg.channel,
                     chat_id=msg.chat_id,
