@@ -232,7 +232,55 @@ Configure available tools:
 - `exec.timeout`: Shell command timeout in seconds
 - `restrictToWorkspace`: Restrict file access to workspace only
 
-### 6. Gateway Configuration
+### 6. Memory Configuration
+
+Configure memory and reasoning behavior:
+
+```json
+{
+  "memory": {
+    "enabled": true,
+    "provider": "local",
+    "useMemoryV2": false,
+    "enableLlmFallback": true,
+    "clarifyEntropyThreshold": 0.8
+  }
+}
+```
+
+**Fields:**
+- `enabled`: Enable memory system (default: `true`)
+- `provider`: Memory provider (`"local"` or `"mem0"`)
+- `useMemoryV2`: Use v2 deterministic memory-first reasoning (default: `false`)
+- `enableLlmFallback`: Allow LLM fallback when memory cannot answer (default: `true`)
+- `clarifyEntropyThreshold`: Entropy threshold for LLM invocation (default: `0.8`)
+
+**LLM Disable Mode:**
+
+You can disable all LLM calls and use only memory-based deterministic reasoning:
+
+1. **Via CLI flag** (overrides config):
+   ```bash
+   nanobot agent --disable-llm
+   nanobot gateway --disable-llm
+   ```
+
+2. **Via config** (can be overridden by `--enable-llm` flag):
+   ```json
+   {
+     "memory": {
+       "enableLlmFallback": false
+     }
+   }
+   ```
+
+When LLM is disabled:
+- Agent uses only cached/memory-based responses
+- Returns deterministic "UNKNOWN" when memory cannot answer
+- No API calls to LLM providers (saves cost and ensures privacy)
+- Ideal for testing or offline operation
+
+### 7. Gateway Configuration
 
 Configure the HTTP server:
 
