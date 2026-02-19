@@ -145,7 +145,7 @@ class AgentLoop:
                     from nanobot.memory.relational_cache_v2 import RelationalCacheV2
                     from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
                     
-                    # Create singleton cache and reasoner
+                    # Create cache and reasoner instances
                     relational_cache_v2 = RelationalCacheV2()
                     self.reasoner = MemoryFirstReasonerV2(cache=relational_cache_v2)
                     
@@ -218,6 +218,44 @@ class AgentLoop:
     def enable_latent_reasoning(self) -> bool:
         """Get effective latent reasoning state from global runtime."""
         return state.latent_reasoning_enabled
+
+    @property
+    def has_v2_reasoner(self) -> bool:
+        """Check if v2 reasoner is active."""
+        return hasattr(self, 'reasoner') and self.reasoner is not None
+
+    def _extract_relations_to_v2_cache(self, content: str) -> int:
+        """Extract relations from text and add to v2 cache.
+        
+        Args:
+            content: Text to extract relations from
+            
+        Returns:
+            Number of relations extracted and added to cache
+        """
+        if not hasattr(self, 'relational_cache_v2') or not self.relational_cache_v2:
+            return 0
+            
+        try:
+            from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
+            from nanobot.memory.types_v2 import IngestionStatus
+            
+            extractor_v2 = RelationExtractionEngineV2()
+            lines = content.split('\n')
+            extracted_count = 0
+            for line in lines:
+                result = extractor_v2.extract(line.strip())
+                if result.status == IngestionStatus.ACCEPTED and result.relation:
+                    a, relation_type, b = result.relation
+                    self.relational_cache_v2.add_relation(
+                        a, relation_type, b,
+                        confidence=result.confidence, source="user_input"
+                    )
+                    extracted_count += 1
+            return extracted_count
+        except Exception as e:
+            logger.warning(f"V2 relation extraction failed (non-fatal): {e}")
+            return 0
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -318,7 +356,7 @@ class AgentLoop:
         Returns:
             Answer string if v2 can answer, None otherwise
         """
-        if not hasattr(self, 'reasoner') or not self.reasoner:
+        if not self.has_v2_reasoner:
             return None
             
         try:
@@ -481,28 +519,9 @@ class AgentLoop:
                 )
                 
                 # Also feed v2 cache if it exists
-                if hasattr(self, 'relational_cache_v2') and self.relational_cache_v2:
-                    try:
-                        from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
-                        from nanobot.memory.types_v2 import IngestionStatus
-                        
-                        extractor_v2 = RelationExtractionEngineV2()
-                        # Process each sentence/line separately for better extraction
-                        lines = msg.content.split('\n')
-                        extracted_v2_count = 0
-                        for line in lines:
-                            result = extractor_v2.extract(line.strip())
-                            if result.status == IngestionStatus.ACCEPTED and result.relation:
-                                a, relation_type, b = result.relation
-                                self.relational_cache_v2.add_relation(
-                                    a, relation_type, b,
-                                    confidence=result.confidence, source="user_input"
-                                )
-                                extracted_v2_count += 1
-                        if extracted_v2_count > 0:
-                            logger.debug(f"Fed {extracted_v2_count} relations to v2 cache")
-                    except Exception as e:
-                        logger.warning(f"V2 relation extraction failed (non-fatal): {e}")
+                extracted_v2_count = self._extract_relations_to_v2_cache(msg.content)
+                if extracted_v2_count > 0:
+                    logger.debug(f"Fed {extracted_v2_count} relations to v2 cache")
                 
                 if extracted_count > 0:
                     logger.info(f"Eager relation extraction: {extracted_count} relations from user message")
@@ -692,7 +711,7 @@ class AgentLoop:
             iteration += 1
 
             # Check if v2 reasoner can answer the query (when LLM is disabled)
-            if hasattr(self, 'reasoner') and self.reasoner and not state.llm_enabled:
+            if self.has_v2_reasoner and not state.llm_enabled:
                 try:
                     v2_answer = self._try_v2_reasoning(msg.content)
                     if v2_answer:
@@ -718,32 +737,14 @@ class AgentLoop:
                 # LLM is disabled - but still extract relations if v2 is active
                 logger.warning(f"[Nanobot] LLM access denied: {str(e)}")
                 
-                # Extract relations from user message if v2 is active
-                if hasattr(self, 'relational_cache_v2') and self.relational_cache_v2:
-                    try:
-                        from nanobot.memory.relation_extractor_v2 import RelationExtractionEngineV2
-                        from nanobot.memory.types_v2 import IngestionStatus
-                        
-                        extractor_v2 = RelationExtractionEngineV2()
-                        lines = msg.content.split('\n')
-                        extracted_v2_count = 0
-                        for line in lines:
-                            result = extractor_v2.extract(line.strip())
-                            if result.status == IngestionStatus.ACCEPTED and result.relation:
-                                a, relation_type, b = result.relation
-                                self.relational_cache_v2.add_relation(
-                                    a, relation_type, b,
-                                    confidence=result.confidence, source="user_input"
-                                )
-                                extracted_v2_count += 1
-                        if extracted_v2_count > 0:
-                            logger.info(f"Extracted {extracted_v2_count} relations to v2 cache (LLM disabled)")
-                    except Exception as ex:
-                        logger.warning(f"V2 relation extraction in LLM-denied path failed: {ex}")
+                # Extract relations from user message using helper method
+                extracted_v2_count = self._extract_relations_to_v2_cache(msg.content)
+                if extracted_v2_count > 0:
+                    logger.info(f"Extracted {extracted_v2_count} relations to v2 cache (LLM disabled)")
                 
                 # Try v2 reasoning one more time after extraction
                 v2_answer = None
-                if hasattr(self, 'reasoner') and self.reasoner:
+                if self.has_v2_reasoner:
                     try:
                         v2_answer = self._try_v2_reasoning(msg.content)
                     except Exception as ex:
