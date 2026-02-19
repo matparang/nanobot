@@ -288,13 +288,55 @@ def wrap_latent_reasoner_with_memory(
 
     # Define new reason method that checks memory first
     async def memory_aware_reason(user_message: str, context_summary: str):
+        from nanobot.runtime.state import state
+        
         # Try memory cache first
-        can_answer, state = memory_reasoner.check_memory_first(user_message)
+        can_answer, state_result = memory_reasoner.check_memory_first(user_message)
 
-        if can_answer and state:
-            return state
+        if can_answer and state_result:
+            return state_result
+        
+        # Check if LLM fallback is allowed
+        llm_enabled = state.llm_enabled
+        enable_llm_fallback = memory_config.get("enable_llm_fallback", True) if memory_config else True
+        
+        # CLI flag overrides config
+        if not llm_enabled:
+            logger.warning(
+                f"LLM disabled globally - returning UNKNOWN for query: {user_message[:50]}..."
+            )
+            from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
+            # Return deterministic UNKNOWN response
+            return SuperpositionalState(
+                hypotheses=[
+                    Hypothesis(
+                        description="UNKNOWN - LLM disabled, memory has no answer",
+                        confidence=1.0,
+                        reasoning="LLM calls are disabled and memory cannot answer this query"
+                    )
+                ],
+                entropy=0.0  # Deterministic UNKNOWN
+            )
+        
+        # Config can also disable LLM fallback
+        if not enable_llm_fallback:
+            logger.warning(
+                f"LLM fallback disabled by config - returning UNKNOWN for query: {user_message[:50]}..."
+            )
+            from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
+            return SuperpositionalState(
+                hypotheses=[
+                    Hypothesis(
+                        description="UNKNOWN - LLM fallback disabled, memory has no answer",
+                        confidence=1.0,
+                        reasoning="LLM fallback is disabled by configuration and memory cannot answer this query"
+                    )
+                ],
+                entropy=0.0
+            )
 
         # Fall back to original LLM-based reasoning
+        logger.debug(f"Falling back to LLM for query: {user_message[:50]}...")
         return await original_reason(user_message, context_summary)
 
     # Replace reason method

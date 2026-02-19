@@ -24,6 +24,7 @@ class RuntimeState:
                 cls._instance._baseline_active = False
                 cls._instance._pre_baseline_state = None
                 cls._instance._suspended_services = set()
+                cls._instance._llm_enabled = True  # LLM enabled by default
                 # Context stage registry - all enabled by default for backward compatibility
                 cls._instance._context_stages = {
                     "identity": True,
@@ -140,6 +141,16 @@ class RuntimeState:
         with self._lock:
             self._reasoning_audit_enabled = bool(enabled)
 
+    @property
+    def llm_enabled(self) -> bool:
+        with self._lock:
+            return self._llm_enabled
+
+    @llm_enabled.setter
+    def llm_enabled(self, enabled: bool) -> None:
+        with self._lock:
+            self._llm_enabled = bool(enabled)
+
     def get_all_toggles(self) -> dict[str, bool]:
         """Return all runtime toggle values keyed by stable CLI-friendly names."""
         with self._lock:
@@ -154,6 +165,7 @@ class RuntimeState:
                 "dual_layer": self._dual_layer_enabled,
                 "chi_tracking": self._chi_tracking_enabled,
                 "reasoning_audit": self._reasoning_audit_enabled,
+                "llm": self._llm_enabled,
             }
 
     def set_baseline_mode(self) -> dict[str, bool]:
