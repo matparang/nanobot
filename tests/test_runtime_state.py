@@ -102,3 +102,53 @@ def test_latent_enabled_gate_with_baseline():
         if state.baseline_active:
             state.exit_baseline_mode(restore=False)
         state.restore_toggles(previous)
+
+
+def test_hypothesis_engine_enabled_default():
+    """Test that hypothesis_engine_enabled defaults to True."""
+    assert state.hypothesis_engine_enabled is True
+
+
+def test_hypothesis_engine_toggle():
+    """Test toggling hypothesis_engine_enabled."""
+    previous = state.get_all_toggles()
+    try:
+        state.hypothesis_engine_enabled = False
+        assert state.hypothesis_engine_enabled is False
+
+        state.hypothesis_engine_enabled = True
+        assert state.hypothesis_engine_enabled is True
+    finally:
+        state.restore_toggles(previous)
+
+
+def test_hypothesis_engine_in_get_all_toggles():
+    """Test that hypothesis_engine appears in get_all_toggles()."""
+    toggles = state.get_all_toggles()
+    assert "hypothesis_engine" in toggles
+
+
+def test_hypothesis_engine_disabled_in_baseline():
+    """Test that hypothesis_engine_enabled is disabled in baseline mode."""
+    previous = state.get_all_toggles()
+    try:
+        state.hypothesis_engine_enabled = True
+        state.enter_baseline_mode()
+        assert state.hypothesis_engine_enabled is False
+        state.exit_baseline_mode(restore=True)
+        assert state.hypothesis_engine_enabled is True
+    finally:
+        if state.baseline_active:
+            state.exit_baseline_mode(restore=False)
+        state.restore_toggles(previous)
+
+
+def test_hypothesis_engine_restored_after_restore_toggles():
+    """Test that hypothesis_engine_enabled is restored via restore_toggles."""
+    previous = state.get_all_toggles()
+    try:
+        state.hypothesis_engine_enabled = False
+        state.restore_toggles({"hypothesis_engine": True})
+        assert state.hypothesis_engine_enabled is True
+    finally:
+        state.restore_toggles(previous)
