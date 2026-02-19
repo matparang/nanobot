@@ -110,3 +110,60 @@ async def test_agent_loop_llm_adapter_usage(mock_provider, temp_workspace):
     
     # Verify the underlying provider was called through the adapter
     mock_provider.chat.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_deterministic_logic_intercepts_before_llm_routing(
+    mock_provider, temp_workspace
+):
+    previous_llm = state.llm_enabled
+    previous_latent = state.latent_reasoning_enabled
+    try:
+        state.llm_enabled = False
+        state.latent_reasoning_enabled = False
+
+        bus = MessageBus()
+        agent = AgentLoop(
+            bus=bus,
+            provider=mock_provider,
+            workspace=temp_workspace,
+            model="test-model",
+            memory_config={"deterministic_logic": True},
+            enable_latent_reasoning=False,
+        )
+
+        from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
+
+        call_order: list[str] = []
+        agent._extract_relations_to_v2_cache = Mock(
+            side_effect=lambda _: (call_order.append("extract"), 0)[1]
+        )
+        agent.memory_aware_reasoner.query = Mock(
+            side_effect=lambda _: (
+                call_order.append("query"),
+                SuperpositionalState(
+                    hypotheses=[
+                        Hypothesis(
+                            intent="rank_true",
+                            confidence=0.95,
+                            reasoning="Eve",
+                        )
+                    ],
+                    entropy=0.05,
+                ),
+            )[1]
+        )
+        agent.llm_adapter.chat = AsyncMock(
+            side_effect=AssertionError("LLM adapter should not be called")
+        )
+
+        response = await agent.process_direct("Who is tallest?")
+
+        assert response is not None
+        assert response == "Eve"
+        assert call_order[:2] == ["extract", "query"]
+        agent.memory_aware_reasoner.query.assert_called_once_with("Who is tallest?")
+        agent.llm_adapter.chat.assert_not_awaited()
+    finally:
+        state.llm_enabled = previous_llm
+        state.latent_reasoning_enabled = previous_latent

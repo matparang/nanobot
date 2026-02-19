@@ -167,6 +167,18 @@ class MemoryAwareReasoner:
         except Exception as e:
             logger.warning(f"Error checking memory cache: {e}")
             return False, None
+
+    def query(self, user_message: str) -> Optional[SuperpositionalState]:
+        """Query deterministic LogicMemory directly when enabled."""
+        if not self.use_deterministic_logic:
+            return None
+        if not self.logic_memory:
+            return None
+        try:
+            return self.logic_memory.query(user_message)
+        except Exception as e:
+            logger.warning(f"Error querying LogicMemory: {e}")
+            return None
     
     def _check_logic_memory(self, user_message: str) -> tuple[bool, Optional[SuperpositionalState]]:
         """Check if the deterministic LogicMemory module can answer the query.
