@@ -495,3 +495,60 @@ async def test_llm_enabled_cache_hit_skips_llm(populated_workspace):
         # Restore original state
         state.llm_enabled = original_llm_enabled
 
+
+
+def test_hypothesis_engine_skipped_when_disabled(populated_workspace):
+    """Test that HypothesisEngine is not initialized when hypothesis_engine_enabled=False."""
+    from nanobot.runtime.state import state
+
+    previous = state.hypothesis_engine_enabled
+    try:
+        state.hypothesis_engine_enabled = False
+        reasoner = MemoryAwareReasoner(
+            workspace=populated_workspace,
+            memory_config={"clarify_entropy_threshold": 0.8}
+        )
+        assert reasoner.hypothesis_engine is None
+    finally:
+        state.hypothesis_engine_enabled = previous
+
+
+def test_check_memory_first_returns_false_when_hypothesis_engine_disabled(populated_workspace):
+    """Test that check_memory_first returns False when HypothesisEngine is disabled at runtime."""
+    from nanobot.runtime.state import state
+
+    previous = state.hypothesis_engine_enabled
+    try:
+        # Initialize with engine enabled (so engine object exists)
+        state.hypothesis_engine_enabled = True
+        reasoner = MemoryAwareReasoner(
+            workspace=populated_workspace,
+            memory_config={"clarify_entropy_threshold": 0.8}
+        )
+        assert reasoner.hypothesis_engine is not None
+
+        # Now disable at runtime
+        state.hypothesis_engine_enabled = False
+        can_answer, result = reasoner.check_memory_first("What is Bob's height?")
+        assert not can_answer
+        assert result is None
+    finally:
+        state.hypothesis_engine_enabled = previous
+
+
+def test_logic_memory_takes_priority_over_hypothesis_engine(temp_workspace):
+    """Test that LogicMemory flag skips HypothesisEngine initialization."""
+    from nanobot.runtime.state import state
+
+    previous = state.hypothesis_engine_enabled
+    try:
+        state.hypothesis_engine_enabled = True
+        reasoner = MemoryAwareReasoner(
+            workspace=temp_workspace,
+            memory_config={"deterministic_logic": True}
+        )
+        # When deterministic_logic=True, HypothesisEngine should NOT be initialized
+        assert reasoner.hypothesis_engine is None
+        assert reasoner.use_deterministic_logic is True
+    finally:
+        state.hypothesis_engine_enabled = previous

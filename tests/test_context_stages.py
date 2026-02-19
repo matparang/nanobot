@@ -22,8 +22,11 @@ def temp_workspace():
 def save_and_restore_state():
     """Save runtime state before test and restore after."""
     original_state = state.get_context_stages()
+    original_toggles = state.get_all_toggles()
     yield
-    # Restore original state
+    # Restore original toggles
+    state.restore_toggles(original_toggles)
+    # Restore original context stages
     for stage_name, enabled in original_state.items():
         if enabled:
             state.enable_context_stage(stage_name)
