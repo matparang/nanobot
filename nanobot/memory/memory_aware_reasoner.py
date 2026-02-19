@@ -303,7 +303,7 @@ def wrap_latent_reasoner_with_memory(
         # CLI flag overrides config
         if not llm_enabled:
             logger.warning(
-                f"LLM disabled globally - returning UNKNOWN for query: {user_message[:50]}..."
+                f"LLM disabled globally - returning UNKNOWN for query: {user_message[:50]} ..."
             )
             from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
             # Return deterministic UNKNOWN response
@@ -321,7 +321,7 @@ def wrap_latent_reasoner_with_memory(
         # Config can also disable LLM fallback
         if not enable_llm_fallback:
             logger.warning(
-                f"LLM fallback disabled by config - returning UNKNOWN for query: {user_message[:50]}..."
+                f"LLM fallback disabled by config - returning UNKNOWN for query: {user_message[:50]} ..."
             )
             from nanobot.agent.memory_types import Hypothesis, SuperpositionalState
             return SuperpositionalState(
@@ -336,7 +336,7 @@ def wrap_latent_reasoner_with_memory(
             )
 
         # Fall back to original LLM-based reasoning
-        logger.debug(f"Falling back to LLM for query: {user_message[:50]}...")
+        logger.debug(f"Falling back to LLM for query: {user_message[:50]} ...")
         return await original_reason(user_message, context_summary)
 
     # Replace reason method
