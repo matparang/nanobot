@@ -283,9 +283,13 @@ class AgentLoop:
         """Try to answer query directly from deterministic LogicMemory."""
         if not self.memory_aware_reasoner:
             return None
-        state = self.memory_aware_reasoner.query(query)
-        if not state or not state.hypotheses:
+
+        # Use check_memory_first which has proper routing priority
+        can_answer, state = self.memory_aware_reasoner.check_memory_first(query)
+
+        if not can_answer or not state or not state.hypotheses:
             return None
+
         return state.hypotheses[0].reasoning
 
     def _register_default_tools(self) -> None:
