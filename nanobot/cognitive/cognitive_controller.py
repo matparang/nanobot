@@ -39,8 +39,17 @@ class CognitiveController:
         confidence_config: dict[str, Any] | None = None,
         working_memory_config: dict[str, Any] | None = None,
         enabled: bool = False,
+        mode: str | None = None,
     ) -> None:
         self.enabled = enabled
+        resolved_mode = self._resolve_mode(mode, working_memory_config)
+
+        if resolved_mode == "active":
+            raise RuntimeError(
+                "Active cognitive control is not yet supported. "
+                "Use --cognitive-controller=passive or remove the active mode configuration."
+            )
+        self.mode = resolved_mode
         obs_cfg = observation_config or {}
         conf_cfg = confidence_config or {}
         wm_cfg = working_memory_config or {}
@@ -197,3 +206,16 @@ class CognitiveController:
         except Exception as exc:  # noqa: BLE001 — KeyboardInterrupt/SystemExit extend BaseException, not Exception
             _log.warning("_extract_reasoning_data failed (non-fatal): %s", exc)
         return data
+
+    # ------------------------------------------------------------------
+    # Internal configuration helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_mode(mode: str | None, working_memory_config: dict[str, Any] | None) -> str:
+        """
+        Resolve controller mode with precedence:
+        explicit mode parameter > working_memory_config > passive default.
+        """
+        wm_mode = (working_memory_config or {}).get("cognitive_controller_mode")
+        return mode or wm_mode or "passive"
