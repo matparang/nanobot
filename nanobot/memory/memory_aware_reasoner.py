@@ -310,7 +310,7 @@ def wrap_latent_reasoner_with_memory(
             return SuperpositionalState(
                 hypotheses=[
                     Hypothesis(
-                        description="UNKNOWN - LLM disabled, memory has no answer",
+                        intent="UNKNOWN - LLM disabled, memory has no answer",
                         confidence=1.0,
                         reasoning="LLM calls are disabled and memory cannot answer this query"
                     )
@@ -327,7 +327,7 @@ def wrap_latent_reasoner_with_memory(
             return SuperpositionalState(
                 hypotheses=[
                     Hypothesis(
-                        description="UNKNOWN - LLM fallback disabled, memory has no answer",
+                        intent="UNKNOWN - LLM fallback disabled, memory has no answer",
                         confidence=1.0,
                         reasoning="LLM fallback is disabled by configuration and memory cannot answer this query"
                     )

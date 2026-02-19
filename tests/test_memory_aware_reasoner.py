@@ -299,3 +299,199 @@ def test_multiple_hypotheses(memory_reasoner):
             assert 0 <= hyp.confidence <= 1
             assert isinstance(hyp.intent, str)
             assert isinstance(hyp.reasoning, str)
+
+
+@pytest.mark.asyncio
+async def test_llm_disabled_via_runtime_state(populated_workspace):
+    """Test that LLM is not called when disabled via runtime state."""
+    from nanobot.runtime.state import state
+    
+    # Track if LLM was called
+    llm_called = {"count": 0}
+    
+    async def mock_reason(user_message, context_summary):
+        llm_called["count"] += 1
+        # Should never be called
+        raise AssertionError("LLM should not be called when disabled")
+    
+    # Create a mock LatentReasoner
+    mock_reasoner = Mock()
+    mock_reasoner.reason = mock_reason
+    
+    # Wrap it
+    wrapped = wrap_latent_reasoner_with_memory(
+        mock_reasoner,
+        workspace=populated_workspace,
+        memory_config={"clarify_entropy_threshold": 0.8}
+    )
+    
+    # Disable LLM globally
+    original_llm_enabled = state.llm_enabled
+    try:
+        state.llm_enabled = False
+        
+        # Call with a query that cache cannot answer
+        result = await wrapped.reason("What is the meaning of life?", "context")
+        
+        # Should NOT have called LLM
+        assert llm_called["count"] == 0
+        
+        # Should return UNKNOWN state
+        assert result.entropy == 0.0  # Deterministic
+        assert len(result.hypotheses) == 1
+        assert "UNKNOWN" in result.hypotheses[0].intent
+        assert "LLM calls are disabled" in result.hypotheses[0].reasoning
+        
+    finally:
+        # Restore original state
+        state.llm_enabled = original_llm_enabled
+
+
+@pytest.mark.asyncio
+async def test_llm_disabled_via_config(populated_workspace):
+    """Test that LLM is not called when disabled via config."""
+    from nanobot.runtime.state import state
+    
+    # Track if LLM was called
+    llm_called = {"count": 0}
+    
+    async def mock_reason(user_message, context_summary):
+        llm_called["count"] += 1
+        # Should never be called
+        raise AssertionError("LLM should not be called when disabled via config")
+    
+    # Create a mock LatentReasoner
+    mock_reasoner = Mock()
+    mock_reasoner.reason = mock_reason
+    
+    # Wrap with LLM fallback disabled via config
+    wrapped = wrap_latent_reasoner_with_memory(
+        mock_reasoner,
+        workspace=populated_workspace,
+        memory_config={
+            "clarify_entropy_threshold": 0.8,
+            "enable_llm_fallback": False
+        }
+    )
+    
+    # Ensure runtime state allows LLM (but config disables it)
+    original_llm_enabled = state.llm_enabled
+    try:
+        state.llm_enabled = True
+        
+        # Call with a query that cache cannot answer
+        result = await wrapped.reason("What is the meaning of life?", "context")
+        
+        # Should NOT have called LLM
+        assert llm_called["count"] == 0
+        
+        # Should return UNKNOWN state
+        assert result.entropy == 0.0  # Deterministic
+        assert len(result.hypotheses) == 1
+        assert "UNKNOWN" in result.hypotheses[0].intent
+        assert "LLM fallback is disabled" in result.hypotheses[0].reasoning
+        
+    finally:
+        # Restore original state
+        state.llm_enabled = original_llm_enabled
+
+
+@pytest.mark.asyncio
+async def test_llm_enabled_cache_miss_calls_llm(populated_workspace):
+    """Test that LLM is called when enabled and cache misses."""
+    from nanobot.runtime.state import state
+    
+    # Track if LLM was called
+    llm_called = {"count": 0}
+    
+    llm_state = SuperpositionalState(
+        hypotheses=[Hypothesis(
+            intent="llm_answer",
+            confidence=0.8,
+            reasoning="LLM provided answer"
+        )],
+        entropy=0.5,
+        strategic_direction="LLM answer"
+    )
+    
+    async def mock_reason(user_message, context_summary):
+        llm_called["count"] += 1
+        return llm_state
+    
+    # Create a mock LatentReasoner
+    mock_reasoner = Mock()
+    mock_reasoner.reason = mock_reason
+    
+    # Wrap with LLM enabled
+    wrapped = wrap_latent_reasoner_with_memory(
+        mock_reasoner,
+        workspace=populated_workspace,
+        memory_config={
+            "clarify_entropy_threshold": 0.8,
+            "enable_llm_fallback": True
+        }
+    )
+    
+    # Ensure runtime state allows LLM
+    original_llm_enabled = state.llm_enabled
+    try:
+        state.llm_enabled = True
+        
+        # Call with a query that cache cannot answer
+        result = await wrapped.reason("What is the meaning of life?", "context")
+        
+        # Should have called LLM
+        assert llm_called["count"] == 1
+        
+        # Should return LLM result
+        assert result == llm_state
+        
+    finally:
+        # Restore original state
+        state.llm_enabled = original_llm_enabled
+
+
+@pytest.mark.asyncio
+async def test_llm_enabled_cache_hit_skips_llm(populated_workspace):
+    """Test that LLM is not called when cache can answer, even when enabled."""
+    from nanobot.runtime.state import state
+    
+    # Track if LLM was called
+    llm_called = {"count": 0}
+    
+    async def mock_reason(user_message, context_summary):
+        llm_called["count"] += 1
+        raise AssertionError("LLM should not be called when cache answers")
+    
+    # Create a mock LatentReasoner
+    mock_reasoner = Mock()
+    mock_reasoner.reason = mock_reason
+    
+    # Wrap with LLM enabled
+    wrapped = wrap_latent_reasoner_with_memory(
+        mock_reasoner,
+        workspace=populated_workspace,
+        memory_config={
+            "clarify_entropy_threshold": 0.8,
+            "enable_llm_fallback": True
+        }
+    )
+    
+    # Ensure runtime state allows LLM
+    original_llm_enabled = state.llm_enabled
+    try:
+        state.llm_enabled = True
+        
+        # Call with a query that cache CAN answer
+        result = await wrapped.reason("What is Bob's height?", "context")
+        
+        # Should NOT have called LLM (cache answered)
+        assert llm_called["count"] == 0
+        
+        # Should have result from cache with low entropy
+        assert result.entropy < 0.5
+        
+    finally:
+        # Restore original state
+        state.llm_enabled = original_llm_enabled
+
