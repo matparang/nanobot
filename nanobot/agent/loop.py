@@ -134,6 +134,7 @@ class AgentLoop:
         self._episodic_enabled = bool(self.memory_config.get("episodic_enabled", True))
         self._auto_consolidate_enabled = bool(self.memory_config.get("auto_consolidate_enabled", True))
         self._auto_consolidate_event_threshold = int(self.memory_config.get("auto_consolidate_event_threshold", 40))
+        self.memory_aware_reasoner = None
 
         cognitive_enabled = self.memory_config.get("cognitive_controller_enabled", False)
         cognitive_mode = self.memory_config.get("cognitive_controller_mode", "passive")
@@ -148,10 +149,18 @@ class AgentLoop:
         # Wire memory-aware reasoning if episodic memory is enabled
         if self._episodic_enabled:
             try:
-                from nanobot.runtime.state import state
+                from nanobot.memory.memory_aware_reasoner import (
+                    MemoryAwareReasoner,
+                    wrap_latent_reasoner_with_memory,
+                )
                 
+                self.memory_aware_reasoner = MemoryAwareReasoner(
+                    workspace=self.workspace,
+                    memory_config=self.memory_config,
+                )
+
                 # Check if LLM is disabled - use v2 deterministic reasoner
-                if not state.llm_enabled:
+                if not state.llm_enabled and not self.memory_aware_reasoner.use_deterministic_logic:
                     # Initialize v2 components for LLM-free operation
                     from nanobot.memory.relational_cache_v2 import RelationalCacheV2
                     from nanobot.memory.memory_first_reasoner_v2 import MemoryFirstReasonerV2
@@ -166,8 +175,6 @@ class AgentLoop:
                     logger.info("[Nanobot] Using deterministic memory-first reasoning (v2) - LLM disabled")
                 else:
                     # LLM enabled - use v1 with HypothesisEngine
-                    from nanobot.memory.memory_aware_reasoner import wrap_latent_reasoner_with_memory
-                    
                     self.latent_engine = wrap_latent_reasoner_with_memory(
                         self.latent_engine,
                         workspace=self.workspace,
@@ -244,7 +251,11 @@ class AgentLoop:
         Returns:
             Number of relations extracted and added to cache
         """
-        if not hasattr(self, 'relational_cache_v2') or not self.relational_cache_v2:
+        target_cache = getattr(self, "relational_cache_v2", None)
+        if not target_cache and self.memory_aware_reasoner:
+            target_cache = self.memory_aware_reasoner.cache_v2
+
+        if not target_cache:
             return 0
             
         try:
@@ -258,7 +269,7 @@ class AgentLoop:
                 result = extractor_v2.extract(line.strip())
                 if result.status == IngestionStatus.ACCEPTED and result.relation:
                     a, relation_type, b = result.relation
-                    self.relational_cache_v2.add_relation(
+                    target_cache.add_relation(
                         a, relation_type, b,
                         confidence=result.confidence, source="user_input"
                     )
@@ -267,6 +278,15 @@ class AgentLoop:
         except Exception as e:
             logger.warning(f"V2 relation extraction failed (non-fatal): {e}")
             return 0
+
+    def _try_deterministic_logic_reasoning(self, query: str) -> str | None:
+        """Try to answer query directly from deterministic LogicMemory."""
+        if not self.memory_aware_reasoner:
+            return None
+        state = self.memory_aware_reasoner.query(query)
+        if not state or not state.hypotheses:
+            return None
+        return state.hypotheses[0].reasoning
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
@@ -712,6 +732,17 @@ class AgentLoop:
             self._maybe_enqueue_consolidation(episodic_session_id)
             return outbound
 
+        extracted_v2_count = self._extract_relations_to_v2_cache(msg.content)
+        if extracted_v2_count > 0:
+            logger.debug(f"Extracted {extracted_v2_count} relations to v2 cache")
+
+        deterministic_answer = self._try_deterministic_logic_reasoning(msg.content)
+        if deterministic_answer:
+            logger.info(f"[LogicMemory] Deterministic query resolved: {deterministic_answer}")
+            final_content = deterministic_answer
+        else:
+            final_content = None
+
         # Build initial messages (use get_history for LLM-formatted messages)
         messages = self.context.build_messages(
             history=session.get_history(),
@@ -724,11 +755,10 @@ class AgentLoop:
 
         # Agent loop
         iteration = 0
-        final_content = None
         tools_used: list[str] = []
         active_sessions.set(len(self.sessions._cache))
 
-        while iteration < self.max_iterations:
+        while iteration < self.max_iterations and final_content is None:
             iteration += 1
 
             # Check if v2 reasoner can answer the query (when LLM is disabled)
